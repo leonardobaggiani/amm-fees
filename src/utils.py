@@ -109,25 +109,26 @@ class AMM: #This name should change as it does not express fully the fact that t
         cash = np.zeros((num_simulations))
         n_sell_order = np.zeros((num_simulations))
         n_buy_order = np.zeros((num_simulations))
-        quantity = (np.ones((num_simulations))*[len(self.y_grid) // 2]).astype(int)
+        idx_quantity = (np.ones((num_simulations))*[len(self.y_grid) // 2]).astype(int)
         stoch_int_sell = np.zeros((num_simulations))
         stoch_int_buy = np.zeros((num_simulations))
         for t in time:
+            indicator_plus = ((idx_quantity+1)<self.dim)
+            indicator_minus = ((idx_quantity-1)>=0)
+            
             alpha, beta = self._calculate_fees_t(t)
-            stoch_int_sell = self.int_sell * np.exp( self.kappa * ((1 - alpha[quantity]) * (self.level_fct(self.y_grid[quantity]) - self.level_fct(self.y_grid[quantity+1])) - self.oracleprice * self.delta_sell(self.y_grid, quantity)) )
-            stoch_int_buy = self.int_buy * np.exp( -self.kappa * ((1 + beta[quantity]) * (self.level_fct(self.y_grid[quantity-1]) - self.level_fct(self.y_grid[quantity])) - self.oracleprice * self.delta_buy(self.y_grid, quantity) ) )
+            stoch_int_sell = self.int_sell * np.exp( self.kappa * ((1 - alpha[idx_quantity]) * (self.level_fct(self.y_grid[idx_quantity]) - self.level_fct(self.y_grid[idx_quantity+1])) - self.oracleprice * self.delta_sell(self.y_grid, idx_quantity)) ) * indicator_plus
+            stoch_int_buy = self.int_buy * np.exp( -self.kappa * ((1 + beta[idx_quantity]) * (self.level_fct(self.y_grid[idx_quantity-1]) - self.level_fct(self.y_grid[idx_quantity])) - self.oracleprice * self.delta_buy(self.y_grid, idx_quantity) ) ) * indicator_minus
         
             sell_order, buy_order = self.get_arrival(stoch_int_sell,stoch_int_buy,num_simulations, dt)
-            sell_order = sell_order.astype(int)
-            sell_order = buy_order.astype(int)
             
-            cash += alpha[quantity] * (self.level_fct(self.y_grid[quantity]) - self.level_fct(self.y_grid[quantity+1])) * sell_order.astype(int) \
-                        + beta[quantity] * (self.level_fct(self.y_grid[quantity-1]) - self.level_fct(self.y_grid[quantity])) * buy_order.astype(int)
+            cash += (alpha[idx_quantity] * (self.level_fct(self.y_grid[idx_quantity]) - self.level_fct(self.y_grid[idx_quantity+1])) * sell_order.astype(int)) * indicator_plus \
+                        + ( beta[idx_quantity] * (self.level_fct(self.y_grid[idx_quantity-1]) - self.level_fct(self.y_grid[idx_quantity])) * buy_order.astype(int) ) * indicator_minus
             
-            quantity += sell_order.astype(int) - buy_order.astype(int)
-            n_sell_order += sell_order
-            n_buy_order += buy_order
-        return np.mean(cash),np.mean(n_sell_order),np.mean(n_buy_order)
+            idx_quantity += (sell_order.astype(int) ) *indicator_plus  - (buy_order.astype(int)) * indicator_minus
+            n_sell_order += sell_order * indicator_plus
+            n_buy_order += buy_order * indicator_minus
+        return cash, n_sell_order, n_buy_order, self.y_grid[idx_quantity]
     
     def simulate_cash_linear(self, num_simulations, dt=0.01):
         Nt = int(self.T / dt)  # Number of time steps
@@ -135,19 +136,22 @@ class AMM: #This name should change as it does not express fully the fact that t
         cash = np.zeros((num_simulations))
         n_sell_order = np.zeros((num_simulations))
         n_buy_order = np.zeros((num_simulations))
-        quantity = (np.ones((num_simulations))*[len(self.y_grid) // 2]).astype(int)
+        idx_quantity = (np.ones((num_simulations))*[len(self.y_grid) // 2]).astype(int)
         stoch_int_sell = np.zeros((num_simulations))
         stoch_int_buy = np.zeros((num_simulations))
         for t in time:
+            indicator_plus = ((idx_quantity+1)<self.dim)
+            indicator_minus = ((idx_quantity-1)>=0)
+            
             alpha_lin, beta_lin = self.get_linear_fees(t)
-            stoch_int_sell = self.int_sell * np.exp( self.kappa * ((1 - alpha_lin[quantity]) * (self.level_fct(self.y_grid[quantity]) - self.level_fct(self.y_grid[quantity+1])) - self.oracleprice * self.delta_sell(self.y_grid, quantity)) )
-            stoch_int_buy = self.int_buy * np.exp( -self.kappa * ((1 + beta_lin[quantity]) * (self.level_fct(self.y_grid[quantity-1]) - self.level_fct(self.y_grid[quantity])) - self.oracleprice * self.delta_buy(self.y_grid, quantity) ) )
+            stoch_int_sell = self.int_sell * np.exp( self.kappa * ((1 - alpha_lin[idx_quantity]) * (self.level_fct(self.y_grid[idx_quantity]) - self.level_fct(self.y_grid[idx_quantity+1])) - self.oracleprice * self.delta_sell(self.y_grid, idx_quantity)) )  * indicator_plus
+            stoch_int_buy = self.int_buy * np.exp( -self.kappa * ((1 + beta_lin[idx_quantity]) * (self.level_fct(self.y_grid[idx_quantity-1]) - self.level_fct(self.y_grid[idx_quantity])) - self.oracleprice * self.delta_buy(self.y_grid, idx_quantity) ) )  * indicator_minus
         
             sell_order, buy_order = self.get_arrival(stoch_int_sell,stoch_int_buy,num_simulations, dt)
-            cash += alpha_lin[quantity] * (self.level_fct(self.y_grid[quantity]) - self.level_fct(self.y_grid[quantity+1])) * sell_order.astype(int) \
-                        + beta_lin[quantity] * (self.level_fct(self.y_grid[quantity-1]) - self.level_fct(self.y_grid[quantity])) * buy_order.astype(int)
-            quantity += sell_order.astype(int) - buy_order.astype(int)
-            n_sell_order += sell_order
-            n_buy_order += buy_order
-        return np.mean(cash),np.mean(n_sell_order),np.mean(n_buy_order)
+            cash += alpha_lin[idx_quantity] * (self.level_fct(self.y_grid[idx_quantity]) - self.level_fct(self.y_grid[idx_quantity+1])) * sell_order.astype(int) * indicator_plus \
+                        + beta_lin[idx_quantity] * (self.level_fct(self.y_grid[idx_quantity-1]) - self.level_fct(self.y_grid[idx_quantity])) * buy_order.astype(int)  * indicator_minus
+            idx_quantity += sell_order.astype(int) * indicator_plus - buy_order.astype(int) * indicator_minus
+            n_sell_order += sell_order  * indicator_plus
+            n_buy_order += buy_order  * indicator_minus
+        return cash, n_sell_order, n_buy_order, self.y_grid[idx_quantity]
 
