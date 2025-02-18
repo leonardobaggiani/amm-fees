@@ -48,12 +48,18 @@ class AMM: #This name should change as it does not express fully the fact that t
         for i in range(self.dim): # Define the matrix A
             quantity = self.y_grid[i]  
             A_matrix[i,i] = - self.kappa*self.pen_const*(-self.der_level_fct(quantity) - self.oracleprice)**2
-            if i > 0:
-                quantity_M1 = self.y_grid[i-1]
-                A_matrix[i-1,i] = self.int_buy * np.exp(self.kappa * self.oracleprice*self.delta_buy(self.y_grid,i) -1 - self.kappa*(self.level_fct(quantity_M1) - self.level_fct(quantity)))
             if i < self.dim - 1:
                 quantity_P1 = self.y_grid[i+ 1]
-                A_matrix[i+1,i] = self.int_sell * np.exp(-self.kappa * self.oracleprice*self.delta_sell(self.y_grid,i) -1 + self.kappa*(self.level_fct(quantity) - self.level_fct(quantity_P1)))
+                A_matrix[i,i+1] = self.int_sell * np.exp(-self.kappa * self.oracleprice*self.delta_sell(self.y_grid,i) -1 + self.kappa*(self.level_fct(quantity) - self.level_fct(quantity_P1)))
+            if i > 0:
+                quantity_M1 = self.y_grid[i-1]
+                A_matrix[i,i-1] = self.int_buy * np.exp(self.kappa * self.oracleprice*self.delta_buy(self.y_grid,i) -1 - self.kappa*(self.level_fct(quantity_M1) - self.level_fct(quantity)))
+            #if i > 0:
+            #    quantity_M1 = self.y_grid[i-1]
+            #    A_matrix[i-1,i] = self.int_buy * np.exp(self.kappa * self.oracleprice*self.delta_buy(self.y_grid,i) -1 - self.kappa*(self.level_fct(quantity_M1) - self.level_fct(quantity)))
+            #if i < self.dim - 1:
+            #    quantity_P1 = self.y_grid[i+ 1]
+            #    A_matrix[i+1,i] = self.int_sell * np.exp(-self.kappa * self.oracleprice*self.delta_sell(self.y_grid,i) -1 + self.kappa*(self.level_fct(quantity) - self.level_fct(quantity_P1)))
         return A_matrix
     
     def _calculate_omega_t(self,t): # Compute the function omega 
@@ -102,6 +108,11 @@ class AMM: #This name should change as it does not express fully the fact that t
         lin_beta[0] = "NaN"
         return (lin_alpha,lin_beta)
     
+    def get_random_fees(self):
+        alpha = np.random.uniform(size=self.dim)
+        beta = np.random.uniform(size=self.dim)
+        return alpha,beta
+    
 
     def simulate_cash_opt(self, num_simulations, dt=0.01):
         Nt = int(self.T / dt)  # Number of time steps
@@ -146,6 +157,64 @@ class AMM: #This name should change as it does not express fully the fact that t
             sell_order, buy_order = self.get_arrival(stoch_int_sell,stoch_int_buy,num_simulations, dt)
             cash += alpha_lin[quantity] * (self.level_fct(self.y_grid[quantity]) - self.level_fct(self.y_grid[quantity+1])) * sell_order.astype(int) \
                         + beta_lin[quantity] * (self.level_fct(self.y_grid[quantity-1]) - self.level_fct(self.y_grid[quantity])) * buy_order.astype(int)
+            quantity += sell_order.astype(int) - buy_order.astype(int)
+            n_sell_order += sell_order
+            n_buy_order += buy_order
+        return np.mean(cash),np.mean(n_sell_order),np.mean(n_buy_order)
+    
+    def simulate_cash_random(self, num_simulations, dt=0.01):
+        Nt = int(self.T / dt)  # Number of time steps
+        time = np.linspace(0, self.T, Nt+1)
+        cash = np.zeros((num_simulations))
+        n_sell_order = np.zeros((num_simulations))
+        n_buy_order = np.zeros((num_simulations))
+        quantity = (np.ones((num_simulations))*[len(self.y_grid) // 2]).astype(int)
+        stoch_int_sell = np.zeros((num_simulations))
+        stoch_int_buy = np.zeros((num_simulations))
+        alpha,beta = self.get_random_fees()
+        beta[0] = "NaN"
+        alpha[-1] = "NaN"
+        for t in time:
+            stoch_int_sell = self.int_sell * np.exp( self.kappa * ((1 - alpha[quantity]) * (self.level_fct(self.y_grid[quantity]) - self.level_fct(self.y_grid[quantity+1])) - self.oracleprice * self.delta_sell(self.y_grid, quantity)) )
+            stoch_int_buy = self.int_buy * np.exp( -self.kappa * ((1 + beta[quantity]) * (self.level_fct(self.y_grid[quantity-1]) - self.level_fct(self.y_grid[quantity])) - self.oracleprice * self.delta_buy(self.y_grid, quantity) ) )
+        
+            sell_order, buy_order = self.get_arrival(stoch_int_sell,stoch_int_buy,num_simulations, dt)
+            sell_order = sell_order.astype(int)
+            sell_order = buy_order.astype(int)
+            
+            cash += alpha[quantity] * (self.level_fct(self.y_grid[quantity]) - self.level_fct(self.y_grid[quantity+1])) * sell_order.astype(int) \
+                        + beta[quantity] * (self.level_fct(self.y_grid[quantity-1]) - self.level_fct(self.y_grid[quantity])) * buy_order.astype(int)
+            
+            quantity += sell_order.astype(int) - buy_order.astype(int)
+            n_sell_order += sell_order
+            n_buy_order += buy_order
+        return np.mean(cash),np.mean(n_sell_order),np.mean(n_buy_order),alpha,beta
+    
+
+    def simulate_cash_const(self, num_simulations, c,dt=0.01):
+        Nt = int(self.T / dt)  # Number of time steps
+        time = np.linspace(0, self.T, Nt+1)
+        cash = np.zeros((num_simulations))
+        n_sell_order = np.zeros((num_simulations))
+        n_buy_order = np.zeros((num_simulations))
+        quantity = (np.ones((num_simulations))*[len(self.y_grid) // 2]).astype(int)
+        stoch_int_sell = np.zeros((num_simulations))
+        stoch_int_buy = np.zeros((num_simulations))
+        alpha = c * np.zeros(len(self.y_grid))
+        beta = c * np.zeros(len(self.y_grid))
+        beta[0] = "NaN"
+        alpha[-1] = "NaN"
+        for t in time:
+            stoch_int_sell = self.int_sell * np.exp( self.kappa * ((1 - alpha[quantity]) * (self.level_fct(self.y_grid[quantity]) - self.level_fct(self.y_grid[quantity+1])) - self.oracleprice * self.delta_sell(self.y_grid, quantity)) )
+            stoch_int_buy = self.int_buy * np.exp( -self.kappa * ((1 + beta[quantity]) * (self.level_fct(self.y_grid[quantity-1]) - self.level_fct(self.y_grid[quantity])) - self.oracleprice * self.delta_buy(self.y_grid, quantity) ) )
+        
+            sell_order, buy_order = self.get_arrival(stoch_int_sell,stoch_int_buy,num_simulations, dt)
+            sell_order = sell_order.astype(int)
+            sell_order = buy_order.astype(int)
+            
+            cash += alpha[quantity] * (self.level_fct(self.y_grid[quantity]) - self.level_fct(self.y_grid[quantity+1])) * sell_order.astype(int) \
+                        + beta[quantity] * (self.level_fct(self.y_grid[quantity-1]) - self.level_fct(self.y_grid[quantity])) * buy_order.astype(int)
+            
             quantity += sell_order.astype(int) - buy_order.astype(int)
             n_sell_order += sell_order
             n_buy_order += buy_order
