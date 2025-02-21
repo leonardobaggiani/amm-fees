@@ -89,25 +89,19 @@ class AMM: #This name should change as it does not express fully the fact that t
     
     def get_linear_fees(self,t):
         alpha, beta = self._calculate_fees_t(t)
-        lin_alpha = np.copy(alpha)
-        lin_beta = np.copy(beta)
-        p_1_a = alpha[len(alpha)//2 - 5]
-        p_2_a = alpha[len(alpha)//2 + 5]
-        p_1_b = beta[len(alpha)//2 - 5]
-        p_2_b = beta[len(alpha)//2 + 5]
+        lin_alpha = np.zeros((self.dim))
+        lin_beta = np.zeros((self.dim))
+        min_idx = self.dim//2 - 3
+        max_idx = self.dim//2 + 3
+        slope_alpha = (alpha[max_idx] - alpha[min_idx]) / (self.y_grid[max_idx] - self.y_grid[min_idx])
+        slope_beta = (beta[max_idx] - beta[min_idx]) / (self.y_grid[max_idx] - self.y_grid[min_idx])
         for i,q in enumerate(self.y_grid):
-            lin_alpha[i] = (-q)*(p_1_a - p_2_a)/(10) + 100.5*(p_1_a - p_2_a) + p_2_a
-            lin_beta[i] = (-q)*(p_1_b - p_2_b)/(10) + 100.5*(p_1_b - p_2_b) + p_2_b
+            lin_alpha[i] = q * slope_alpha + alpha[max_idx] - slope_alpha* self.y_grid[max_idx]
+            lin_beta[i] = q * slope_beta + beta[max_idx] - slope_beta* self.y_grid[max_idx]
         lin_alpha[-1] = "NaN"
         lin_beta[0] = "NaN"
-        return (lin_alpha,lin_beta)
+        return lin_alpha,lin_beta
     
-    def get_random_fees(self):
-        alpha = np.random.uniform(size=self.dim)
-        beta = np.random.uniform(size=self.dim)
-        return alpha,beta
-    
-
     def compute_intensities(self, alpha, beta, idx_quantity):
         stoch_int_sell = self.int_sell * np.exp( self.kappa * ((1 - alpha[idx_quantity]) * (self.level_fct(self.y_grid[idx_quantity]) - self.level_fct(self.y_grid[idx_quantity+1])) - self.oracleprice * self.delta_sell(self.y_grid, idx_quantity)) )
         stoch_int_buy = self.int_buy * np.exp( -self.kappa * ((1 + beta[idx_quantity]) * (self.level_fct(self.y_grid[idx_quantity-1]) - self.level_fct(self.y_grid[idx_quantity])) - self.oracleprice * self.delta_buy(self.y_grid, idx_quantity) ) )
@@ -118,26 +112,28 @@ class AMM: #This name should change as it does not express fully the fact that t
         cash_step = alpha[idx_quantity] * (self.level_fct(self.y_grid[idx_quantity]) - self.level_fct(self.y_grid[idx_quantity+1])) * sell_order.astype(int)  \
                         + beta[idx_quantity] * (self.level_fct(self.y_grid[idx_quantity-1]) - self.level_fct(self.y_grid[idx_quantity])) * buy_order.astype(int) 
         return cash_step
-    
-    def simulate_PnL(self, nsims, Nt, benchmarks = False):
+        
+    def simulate_PnL(self, nsims, Nt,c, strategy):
         dt = self.T/Nt
         timesteps = np.linspace(0, self.T, Nt+1)
         cash = np.zeros((nsims))
         n_sell_order = np.zeros((nsims))
         n_buy_order = np.zeros((nsims))
-        idx_quantity = (np.ones((nsims))*[len(self.y_grid) // 2]).astype(int)
-        if benchmarks:
-            cash_bench = np.zeros((nsims))
-            n_sell_order_bench = np.zeros((nsims))
-            n_buy_order_bench = np.zeros((nsims))
-            idx_quantity_bench = (np.ones((nsims))*[len(self.y_grid) // 2]).astype(int)
-
-        
+        idx_quantity = (np.ones((nsims))*[self.dim // 2]).astype(int)
         stoch_int_sell = np.zeros((nsims))
         stoch_int_buy = np.zeros((nsims))
-        
+        min_inventory = self.y_0
+        max_inventory = self.y_0
+        if strategy == "Constant":
+            alpha = c*np.ones((self.dim))
+            beta = c*np.ones((self.dim))
+            alpha[-1] = "NaN"
+            beta[0] = "NaN"
         for t in timesteps:
-            alpha, beta = self._calculate_fees_t(t)
+            if strategy == "Optimal":
+                alpha, beta = self._calculate_fees_t(t)
+            if strategy == "Linear":
+                alpha, beta = self.get_linear_fees(t)
             stoch_int_sell, stoch_int_buy = self.compute_intensities(alpha, beta, idx_quantity)
             sell_order, buy_order = self.get_arrival(stoch_int_sell, stoch_int_buy, nsims, dt)
             indicator_buy = (idx_quantity - 1 >=0)
@@ -151,25 +147,12 @@ class AMM: #This name should change as it does not express fully the fact that t
             idx_quantity += sell_order.astype(int) - buy_order.astype(int)
             n_sell_order += sell_order
             n_buy_order += buy_order
+
+            min_inventory = np.minimum(min_inventory,self.y_grid[idx_quantity])
+            max_inventory = np.maximum(max_inventory,self.y_grid[idx_quantity])
             
-            if benchmarks:
-                alpha_bench, beta_bench = self.get_linear_fees(t)
-                stoch_int_sell, stoch_int_buy = self.compute_intensities(alpha_bench, beta_bench, idx_quantity_bench)
-                sell_order, buy_order = self.get_arrival(stoch_int_sell, stoch_int_buy, nsims, dt)
-                indicator_buy = (idx_quantity_bench - 1 >=0)
-                indicator_sell = (idx_quantity_bench + 1 <self.dim)
-                sell_order = sell_order.astype(int) * indicator_sell
-                buy_order = buy_order.astype(int) * indicator_buy
-
-                cash_bench += self.compute_cash_step(alpha_bench, beta_bench, idx_quantity_bench, sell_order, buy_order) 
-
-                idx_quantity_bench += sell_order.astype(int) - buy_order.astype(int)
-                n_sell_order_bench += sell_order
-                n_buy_order_bench += buy_order
-    
-        if benchmarks:
-            return (cash, self.y_grid[idx_quantity], n_sell_order, n_buy_order), (cash_bench, self.y_grid[idx_quantity_bench], n_sell_order_bench, n_buy_order_bench)
-        else:
-            return (cash, self.y_grid[idx_quantity], n_sell_order, n_buy_order)
+        return (cash, self.y_grid[idx_quantity], n_sell_order, n_buy_order, min_inventory, max_inventory)
+        
+        
     
     
