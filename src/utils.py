@@ -113,7 +113,7 @@ class AMM: #This name should change as it does not express fully the fact that t
                         + beta[idx_quantity] * (self.level_fct(self.y_grid[idx_quantity-1]) - self.level_fct(self.y_grid[idx_quantity])) * buy_order.astype(int) 
         return cash_step
         
-    def simulate_PnL(self, nsims, Nt,c, strategy, seed = 123):
+    def simulate_PnL(self, nsims, Nt, strategy, c = 0.01, seed = 123):
         rng = np.random.default_rng(seed=seed)
         dt = self.T/Nt
         timesteps = np.linspace(0, self.T, Nt+1)
