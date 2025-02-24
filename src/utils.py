@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.linalg import expm
-rng = np.random.default_rng(seed=123)
+
 
 class AMM: #This name should change as it does not express fully the fact that this is the case with equidistributed grid for the asset y
     def __init__(self,int_sell, int_buy, kappa, oracleprice, depth, y_grid, y_0, T =1., pen_const=0.):
@@ -113,7 +113,8 @@ class AMM: #This name should change as it does not express fully the fact that t
                         + beta[idx_quantity] * (self.level_fct(self.y_grid[idx_quantity-1]) - self.level_fct(self.y_grid[idx_quantity])) * buy_order.astype(int) 
         return cash_step
         
-    def simulate_PnL(self, nsims, Nt,c, strategy):
+    def simulate_PnL(self, nsims, Nt,c, strategy, seed = 123):
+        rng = np.random.default_rng(seed=seed)
         dt = self.T/Nt
         timesteps = np.linspace(0, self.T, Nt+1)
         cash = np.zeros((nsims))
