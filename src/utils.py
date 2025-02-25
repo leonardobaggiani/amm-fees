@@ -113,7 +113,7 @@ class AMM: #This name should change as it does not express fully the fact that t
                         + beta[idx_quantity] * (self.level_fct(self.y_grid[idx_quantity-1]) - self.level_fct(self.y_grid[idx_quantity])) * buy_order.astype(int) 
         return cash_step
         
-    def simulate_PnL(self, nsims, Nt, strategy, c = 0.01, seed = 123):
+    def simulate_PnL(self, nsims, Nt, strategy, c = 0.01, seed = 123, return_trajectory = False):
         rng = np.random.default_rng(seed=seed)
         dt = self.T/Nt
         timesteps = np.linspace(0, self.T, Nt+1)
@@ -121,6 +121,9 @@ class AMM: #This name should change as it does not express fully the fact that t
         n_sell_order = np.zeros((nsims))
         n_buy_order = np.zeros((nsims))
         idx_quantity = (np.ones((nsims))*[self.dim // 2]).astype(int)
+        if return_trajectory:
+            traj_quantity = np.zeros((nsims, Nt+1))
+            traj_quantity[:,0] = self.y_grid[[self.dim // 2]] 
         stoch_int_sell = np.zeros((nsims))
         stoch_int_buy = np.zeros((nsims))
         min_inventory = self.y_0
@@ -130,7 +133,7 @@ class AMM: #This name should change as it does not express fully the fact that t
             beta = c*np.ones((self.dim))
             alpha[-1] = "NaN"
             beta[0] = "NaN"
-        for t in timesteps:
+        for it, t in enumerate(timesteps[:-1]):
             if strategy == "Optimal":
                 alpha, beta = self._calculate_fees_t(t)
             if strategy == "Linear":
@@ -152,8 +155,12 @@ class AMM: #This name should change as it does not express fully the fact that t
             min_inventory = np.minimum(min_inventory,self.y_grid[idx_quantity])
             max_inventory = np.maximum(max_inventory,self.y_grid[idx_quantity])
             
-        return (cash, self.y_grid[idx_quantity], n_sell_order, n_buy_order, min_inventory, max_inventory)
+            if return_trajectory:
+                traj_quantity[:,it+1] = self.y_grid[idx_quantity]
+        if return_trajectory:
+            return (cash, self.y_grid[idx_quantity], n_sell_order, n_buy_order, min_inventory, max_inventory, traj_quantity)
+        else:
+            return (cash, self.y_grid[idx_quantity], n_sell_order, n_buy_order, min_inventory, max_inventory)
         
         
-    
     
