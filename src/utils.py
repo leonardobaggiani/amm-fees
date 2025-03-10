@@ -43,9 +43,9 @@ class AMM: #This name should change as it does not express fully the fact that t
     def delta_sell(self, y, i): #Compute the trading size for selling
         return y[i+1] - y[i]
     
-    def _calculate_matrix_t(self,t): # Compute the function omega 
+    def _calculate_matrix_t(self,t): # Compute the matrix A
         A_matrix = np.zeros((self.dim,self.dim))
-        for i in range(self.dim): # Define the matrix A
+        for i in range(self.dim): 
             quantity = self.y_grid[i]  
             A_matrix[i,i] = - self.kappa*self.pen_const*(-self.der_level_fct(quantity) - self.oracleprice)**2
             if i < self.dim - 1:
@@ -62,7 +62,7 @@ class AMM: #This name should change as it does not express fully the fact that t
         A_matrix = self._calculate_matrix_t(t)
         return np.matmul(expm(A_matrix*(self.T-t)), vector)
 
-    def _calculate_v_t(self,t):
+    def _calculate_v_t(self,t):  # Compute the function v 
         omega_function = self._calculate_omega_t(t)
         return ( 1 / self.kappa) * np.log(omega_function)
     
@@ -82,13 +82,12 @@ class AMM: #This name should change as it does not express fully the fact that t
         m[0] = np.NaN
         return p, m
     
-    def get_arrival(self,stoc_intensity_sell,stoc_intensity_buy,num_simulations,dt,seed):
-        rng = np.random.default_rng(seed=seed)
+    def get_arrival(self,stoc_intensity_sell,stoc_intensity_buy,num_simulations,dt): # Given intensity compute if there is a jump or not
         unif_s = np.random.uniform(size=num_simulations)
         unif_b = np.random.uniform(size=num_simulations)
         return unif_s < 1. - np.exp(-stoc_intensity_sell * dt), unif_b < 1. - np.exp(-stoc_intensity_buy * dt)
     
-    def get_linear_fees(self,t):
+    def get_linear_fees(self,t): # Compute the linear fees 
         p, m = self._calculate_fees_t(t)
         lin_p = np.zeros((self.dim))
         lin_m = np.zeros((self.dim))
@@ -103,18 +102,22 @@ class AMM: #This name should change as it does not express fully the fact that t
         lin_m[0] = "NaN"
         return lin_p,lin_m,slope_p, slope_m
     
-    def compute_intensities(self, alpha, beta, idx_quantity):
-        stoch_int_sell = self.int_sell * np.exp( self.kappa * ((1 - alpha[idx_quantity]) * (self.level_fct(self.y_grid[idx_quantity]) - self.level_fct(self.y_grid[idx_quantity+1])) - self.oracleprice * self.delta_sell(self.y_grid, idx_quantity)) )
-        stoch_int_buy = self.int_buy * np.exp( -self.kappa * ((1 + beta[idx_quantity]) * (self.level_fct(self.y_grid[idx_quantity-1]) - self.level_fct(self.y_grid[idx_quantity])) - self.oracleprice * self.delta_buy(self.y_grid, idx_quantity) ) )
+    def compute_intensities(self, p, m, idx_quantity): # Compute the intensities
+        indicator_buy = (idx_quantity - 1 >=0)
+        indicator_sell = (idx_quantity + 1 <self.dim)
+        stoch_int_sell = self.int_sell * np.exp( self.kappa * ((1 - p[idx_quantity * indicator_sell]) * (self.level_fct(self.y_grid[idx_quantity * indicator_sell]) - self.level_fct(self.y_grid[(idx_quantity+1)*indicator_sell])) - self.oracleprice * self.delta_sell(self.y_grid, idx_quantity*indicator_sell)) )
+        stoch_int_buy = self.int_buy * np.exp( -self.kappa * ((1 + m[idx_quantity*indicator_buy]) * (self.level_fct(self.y_grid[(idx_quantity-1)*indicator_buy]) - self.level_fct(self.y_grid[idx_quantity*indicator_buy])) - self.oracleprice * self.delta_buy(self.y_grid, idx_quantity*indicator_buy) ) )
         return stoch_int_sell, stoch_int_buy
-    
-    
-    def compute_cash_step(self, alpha, beta, idx_quantity, sell_order, buy_order):
-        cash_step = alpha[idx_quantity] * (self.level_fct(self.y_grid[idx_quantity]) - self.level_fct(self.y_grid[idx_quantity+1])) * sell_order.astype(int)  \
-                        + beta[idx_quantity] * (self.level_fct(self.y_grid[idx_quantity-1]) - self.level_fct(self.y_grid[idx_quantity])) * buy_order.astype(int) 
+     
+    def compute_cash_step(self, p, m, idx_quantity, sell_order, buy_order):
+        indicator_buy = (idx_quantity - 1 >=0)
+        indicator_sell = (idx_quantity + 1 <self.dim)
+        cash_step = p[idx_quantity*indicator_sell] * (self.level_fct(self.y_grid[idx_quantity*indicator_sell]) - self.level_fct(self.y_grid[(idx_quantity+1)*indicator_sell])) * sell_order.astype(int)  \
+                        + m[idx_quantity*indicator_buy] * (self.level_fct(self.y_grid[(idx_quantity-1)*indicator_buy]) - self.level_fct(self.y_grid[idx_quantity*indicator_buy])) * buy_order.astype(int) 
         return cash_step
         
     def simulate_PnL(self, nsims, Nt, strategy, c=0.01, seed = 123, return_trajectory = False):
+        rng = np.random.default_rng(seed=seed)
         dt = self.T/Nt
         timesteps = np.linspace(0, self.T, Nt+1)
         cash = np.zeros((nsims))
@@ -129,33 +132,35 @@ class AMM: #This name should change as it does not express fully the fact that t
         #min_inventory = self.y_0
         #max_inventory = self.y_0
         if strategy == "Constant":
-            alpha = c*np.ones((self.dim))
-            beta = c*np.ones((self.dim))
-            alpha[-1] = "NaN"
-            beta[0] = "NaN"
+            p = c*np.ones((self.dim))
+            m = c*np.ones((self.dim))
+            p[-1] = "NaN"
+            m[0] = "NaN"
         for it, t in enumerate(timesteps[:-1]):
             if strategy == "Optimal":
-                alpha, beta = self._calculate_fees_t(t)
+                p, m = self._calculate_fees_t(t)
             if strategy == "Linear":
-                alpha, beta,_,_ = self.get_linear_fees(t)
-            stoch_int_sell, stoch_int_buy = self.compute_intensities(alpha, beta, idx_quantity)
-            sell_order, buy_order = self.get_arrival(stoch_int_sell, stoch_int_buy, nsims, dt,seed)
+                p, m,_,_ = self.get_linear_fees(t)
             indicator_buy = (idx_quantity - 1 >=0)
             indicator_sell = (idx_quantity + 1 <self.dim)
+
+            stoch_int_sell, stoch_int_buy = self.compute_intensities(p, m, idx_quantity)
+            sell_order, buy_order = self.get_arrival(stoch_int_sell, stoch_int_buy, nsims, dt)
+            
             
             sell_order = sell_order.astype(int) * indicator_sell
             buy_order = buy_order.astype(int) * indicator_buy
             
-            cash += self.compute_cash_step(alpha, beta, idx_quantity, sell_order, buy_order) 
+            cash += self.compute_cash_step(p, m, idx_quantity, sell_order, buy_order)
             
             idx_quantity += sell_order.astype(int) - buy_order.astype(int)
-            n_sell_order += sell_order
-            n_buy_order += buy_order
+            n_sell_order += sell_order.astype(int)
+            n_buy_order += buy_order.astype(int)
 
             #min_inventory = np.minimum(min_inventory,self.y_grid[idx_quantity])
             #max_inventory = np.maximum(max_inventory,self.y_grid[idx_quantity])
             
-            if return_trajectory:
+        if return_trajectory:
                 traj_quantity[:,it+1] = self.y_grid[idx_quantity]
         if return_trajectory:
             return (cash, self.y_grid[idx_quantity], n_sell_order, n_buy_order, traj_quantity)
