@@ -34,7 +34,7 @@ class AMM:
         self.dim = len(y_grid)
 
         # volatility
-        self.sigma = 0.2
+        self.sigma = 0
 
     def level_fct(self,y): # We assume CPMM
         return self.depth / y
@@ -199,7 +199,7 @@ class AMM:
         return p, m
     
 class lin_quad_ansatz:
-    def __init__(self,int_sell, int_buy, kappa, oracleprice, depth, y_grid, y_0, T =1., pen_const=0., sigma = 10, delta_minus = 1, delta_plus = 1):
+    def __init__(self,int_sell, int_buy, kappa, oracleprice, depth, y_grid, y_0, T =1., pen_const=0., sigma = 0.2, delta_minus = 0.5, delta_plus = 0.5):
         # Intensities
         self.int_sell = int_sell
         self.int_buy = int_buy
@@ -227,7 +227,7 @@ class lin_quad_ansatz:
         self.dim = len(y_grid)
 
         # volatility
-        self.sigma = 0.2
+        self.sigma = sigma
 
         self.delta_minus = delta_minus
         self.delta_plus = delta_plus
@@ -242,557 +242,725 @@ class lin_quad_ansatz:
         return - self.depth/(y**2)
 
     def compute_psi_0(self):
-        """
-        psi_0 =
-        [ 4 p^4 y_0^2 * lambda^- + p^4 (delta^-)^2 * lambda^- - 4 p^4 y_0 delta^- * lambda^- ]
-        / [ e kappa (2 y_0^2 - y_0 delta^-)^4 ]
-        + [ 4 p^4 y_0^2 * lambda^+ + p^4 (delta^+)^2 * lambda^+ + 4 p^4 y_0 delta^+ * lambda^+ ]
-        / [ e kappa (y_0 delta^+ + 2 y_0^2)^4 ]
-        - 4 p^4 pen_const / y_0^6"
-        """
-        
-        y = self.y_0
-        # Buy side: lambda^- is self.int_buy and delta^- is self.delta_minus
-        psi_buy = (self.p4 * self.int_buy * (4 * y**2 + self.delta_minus**2 - 4 * y * self.delta_minus)) \
-                / (self.e * self.kappa * (2 * y**2 - y * self.delta_minus)**4)
-        
-        # Sell side: lambda^+ is self.int_sell and delta^+ is self.delta_plus
-        psi_sell = (self.p4 * self.int_sell * (4 * y**2 + self.delta_plus**2 + 4 * y * self.delta_plus)) \
-                / (self.e * self.kappa * (y * self.delta_plus + 2 * y**2)**4)
-        
-        # Penalty term remains the same (with phi being represented by pen_const)
-        psi_pen = (4 * self.p4 * self.pen_const) / (y**6)
-        
-        return psi_buy + psi_sell - psi_pen
+        # Shorthand assignments:
+        y0 = self.y_0         # y₀
+        p4 = self.p4          # p^4
+        phi = self.pen_const  # φ
+        k = self.kappa        # k
+        e = self.e            # e
+        delta_m = self.delta_minus  # δ⁻
+        delta_p = self.delta_plus   # δ⁺
+        lambda_m = self.int_buy     # λ⁻
+        lambda_p = self.int_sell    # λ⁺
+
+        # Denominators
+        denom_buy = (y0**2 - y0 * delta_m)**4
+        denom_sell = (y0 * delta_p + y0**2)**4
+
+        # Terms corresponding to the LaTeX formula:
+        term1 = - (4 * p4 * phi) / (y0**6)
+        term2 = (2 * k * p4 * y0**2 * (delta_m**2) * lambda_m) / (e * denom_buy)
+        term3 = - (2 * k * p4 * y0 * (delta_m**3) * lambda_m) / (e * denom_buy)
+        term4 = (k * p4 * (delta_m**4) * lambda_m) / (2 * e * denom_buy)
+        term5 = (2 * k * p4 * y0**2 * (delta_p**2) * lambda_p) / (e * denom_sell)
+        term6 = (2 * k * p4 * y0 * (delta_p**3) * lambda_p) / (e * denom_sell)
+        term7 = (k * p4 * (delta_p**4) * lambda_p) / (2 * e * denom_sell)
+
+        return term1 + term2 + term3 + term4 + term5 + term6 + term7
+
 
     def compute_psi_1(self):
-        """
-        psi_1 = [4 p^2 (delta^-)^2 lambda^- - 8 p^2 y_0 delta^- lambda^-] / [e kappa (2 y_0^2 - y_0 delta^-)^2]
-                - [4 p^2 (delta^+)^2 lambda^+ + 8 p^2 y_0 delta^+ lambda^+] / [e kappa (y_0 delta^+ + 2 y_0^2)^2]
-        """
-        y = self.y_0
-        # Buy side (λ⁻, δ⁻)
-        psi1_buy = (self.depth * self.int_buy * (4 * self.delta_minus**2 - 8 * y * self.delta_minus)) \
-                / (self.e * self.kappa * (2 * y**2 - y * self.delta_minus)**2)
         
-        # Sell side (λ⁺, δ⁺)
-        psi1_sell = - (self.depth * self.int_sell * (4 * self.delta_plus**2 + 8 * y * self.delta_plus)) \
-                    / (self.e * self.kappa * (y * self.delta_plus + 2 * y**2)**2)
-        
-        return psi1_buy + psi1_sell
+        # Shorthand assignments:
+        y0 = self.y_0              # y₀
+        p2 = self.depth            # p²
+        k = self.kappa             # k
+        e = self.e                 # e
+        delta_m = self.delta_minus # δ⁻
+        delta_p = self.delta_plus  # δ⁺
+        lambda_m = self.int_buy    # λ⁻
+        lambda_p = self.int_sell   # λ⁺
+
+        # Denominators:
+        denom_buy = (y0**2 - y0 * delta_m)**2
+        denom_sell = (y0**2 + y0 * delta_p)**2
+
+        # Terms as per the LaTeX expression:
+        term1 = (2 * k * p2 * lambda_m * (delta_m**3)) / (e * denom_buy)
+        term2 = - (4 * k * p2 * y0 * lambda_m * (delta_m**2)) / (e * denom_buy)
+        term3 = - (2 * k * p2 * (delta_p**3) * lambda_p) / (e * denom_sell)
+        term4 = - (4 * k * p2 * y0 * (delta_p**2) * lambda_p) / (e * denom_sell)
+
+        return term1 + term2 + term3 + term4
+
 
     def compute_psi_2(self):
-        """
-        psi_2 = 4 int_buy (delta^-)^2 / (e kappa) + 4 int_sell (delta^+)^2 / (e kappa)
-        """
-        return (4 * self.delta_minus**2 * self.int_buy + 4 * self.delta_plus**2 * self.int_sell) / (self.e * self.kappa)
+        # LaTeX for Ψ₂:
+        # Ψ₂ = ( -2·k·δ⁻·λ⁻/(E) + 2·k·δ⁺·λ⁺/(E) )
+        e  = self.e
+        k  = self.kappa
+        δm = self.delta_minus
+        δp = self.delta_plus
+        λm = self.int_buy
+        λp = self.int_sell
+
+        term1 = (2 * k * (δm**2) * λm) / e
+        term2 = (2 * k * (δp**2) * λp) / e
+        return term1 + term2
+
 
     def compute_psi_3(self):
-        """
-        Computes psi_3 given by:
-        
-        psi_3 = [2 p^4 (delta^-)^2 lambda^-]      / [e k (y_0^2 - y_0 delta^-)(2 y_0^2 - y_0 delta^-)^2]
-                + [8 p^4 y_0^2 delta^- lambda^-]      / [e k (2 y_0^2 - y_0 delta^-)^4]
-                - [4 p^4 y_0 delta^- lambda^-]        / [e k (y_0^2 - y_0 delta^-)(2 y_0^2 - y_0 delta^-)^2]
-                - [8 p^4 y_0^3 lambda^-]              / [e k (2 y_0^2 - y_0 delta^-)^4]
-                - [2 p^4 y_0 (delta^-)^2 lambda^-]     / [e k (2 y_0^2 - y_0 delta^-)^4]
-                + [2 p^2 y_0 lambda^-]                / [e k (2 y_0^2 - y_0 delta^-)^2]
-                - [p^2 delta^- lambda^-]              / [e k (2 y_0^2 - y_0 delta^-)^2]
-                - [2 p^4 (delta^+)^2 lambda^+]         / [e k (y_0 delta^+ + y_0^2)(y_0 delta^+ + 2 y_0^2)^2]
-                - [4 p^4 y_0 delta^+ lambda^+]         / [e k (y_0 delta^+ + y_0^2)(y_0 delta^+ + 2 y_0^2)^2]
-                - [8 p^4 y_0^3 lambda^+]               / [e k (y_0 delta^+ + 2 y_0^2)^4]
-                - [2 p^4 y_0 (delta^+)^2 lambda^+]      / [e k (y_0 delta^+ + 2 y_0^2)^4]
-                - [8 p^4 y_0^2 delta^+ lambda^+]         / [e k (y_0 delta^+ + 2 y_0^2)^4]
-                - [2 p^2 y_0 lambda^+]                / [e k (y_0 delta^+ + 2 y_0^2)^2]
-                - [p^2 delta^+ lambda^+]              / [e k (y_0 delta^+ + 2 y_0^2)^2]
-                + [12 p^4 phi]                        / [y_0^5]
-        """
-        y = self.y_0
+        # Shorthand assignments:
+        y0 = self.y_0              # y₀
+        p4 = self.p4               # p^4
+        p2 = self.depth            # p^2
+        k = self.kappa             # k
+        e = self.e                 # e
+        delta_m = self.delta_minus # δ⁻
+        delta_p = self.delta_plus  # δ⁺
+        lambda_m = self.int_buy    # λ⁻
+        lambda_p = self.int_sell   # λ⁺
+        phi = self.pen_const       # φ
 
-        # Precompute denominators for the buy side:
-        denom_buy1 = (y**2 - y * self.delta_minus)
-        denom_buy2 = (2 * y**2 - y * self.delta_minus)  # Appears raised to power 2 or 4
+        # Denominators for the buy side:
+        denom_buy_3 = (y0**2 - y0 * delta_m)**3
+        denom_buy_4 = (y0**2 - y0 * delta_m)**4
+        denom_buy_2 = (y0**2 - y0 * delta_m)**2
 
-        # Precompute denominators for the sell side:
-        denom_sell1 = (y * self.delta_plus + y**2)
-        denom_sell2 = (y * self.delta_plus + 2 * y**2)  # Appears raised to power 2 or 4
+        # Denominators for the sell side:
+        denom_sell_3 = (y0 * delta_p + y0**2)**3
+        denom_sell_4 = (y0 * delta_p + y0**2)**4
+        denom_sell_2 = (y0 * delta_p + y0**2)**2
 
-        # Terms for the buy side (using lambda^- = self.int_buy):
-        term1 = (2 * self.p4 * self.delta_minus**2 * self.int_buy) / (self.e * self.kappa * denom_buy1 * (denom_buy2**2))
-        term2 = (8 * self.p4 * y**2 * self.delta_minus * self.int_buy) / (self.e * self.kappa * (denom_buy2**4))
-        term3 = (-4 * self.p4 * y * self.delta_minus * self.int_buy) / (self.e * self.kappa * denom_buy1 * (denom_buy2**2))
-        term4 = (-8 * self.p4 * y**3 * self.int_buy) / (self.e * self.kappa * (denom_buy2**4))
-        term5 = (-2 * self.p4 * y * self.delta_minus**2 * self.int_buy) / (self.e * self.kappa * (denom_buy2**4))
-        term6 = (2 * self.depth * y * self.int_buy) / (self.e * self.kappa * (denom_buy2**2))
-        term7 = (- self.depth * self.delta_minus * self.int_buy) / (self.e * self.kappa * (denom_buy2**2))
+        # Buy-side terms:
+        term1 = (k * p4 * (delta_m**3) * lambda_m) / (e * denom_buy_3)
+        term2 = (4 * k * p4 * y0**2 * (delta_m**3) * lambda_m) / (e * denom_buy_4)
+        term3 = - (2 * k * p4 * y0 * (delta_m**2) * lambda_m) / (e * denom_buy_3)
+        term4 = - (k * p4 * y0 * (delta_m**4) * lambda_m) / (e * denom_buy_4)
+        term5 = - (4 * k * p4 * y0**3 * (delta_m**2) * lambda_m) / (e * denom_buy_4)
+        term6 = (2 * p2 * y0 * delta_m * lambda_m) / (e * denom_buy_2)
+        term7 = - (p2 * (delta_m**2) * lambda_m) / (e * denom_buy_2)
 
-        # Terms for the sell side (using lambda^+ = self.int_sell):
-        term8  = (-2 * self.p4 * self.delta_plus**2 * self.int_sell) / (self.e * self.kappa * denom_sell1 * (denom_sell2**2))
-        term9  = (-4 * self.p4 * y * self.delta_plus * self.int_sell) / (self.e * self.kappa * denom_sell1 * (denom_sell2**2))
-        term10 = (-8 * self.p4 * y**3 * self.int_sell) / (self.e * self.kappa * (denom_sell2**4))
-        term11 = (-2 * self.p4 * y * self.delta_plus**2 * self.int_sell) / (self.e * self.kappa * (denom_sell2**4))
-        term12 = (-8 * self.p4 * y**2 * self.delta_plus * self.int_sell) / (self.e * self.kappa * (denom_sell2**4))
-        term13 = (-2 * self.depth * y * self.int_sell) / (self.e * self.kappa * (denom_sell2**2))
-        term14 = (- self.depth * self.delta_plus * self.int_sell) / (self.e * self.kappa * (denom_sell2**2))
+        # Sell-side terms:
+        term8 = - (k * p4 * (delta_p**3) * lambda_p) / (e * denom_sell_3)
+        term9 = - (2 * k * p4 * y0 * (delta_p**2) * lambda_p) / (e * denom_sell_3)
+        term10 = - (k * p4 * y0 * (delta_p**4) * lambda_p) / (e * denom_sell_4)
+        term11 = - (4 * k * p4 * y0**2 * (delta_p**3) * lambda_p) / (e * denom_sell_4)
+        term12 = - (4 * k * p4 * y0**3 * (delta_p**2) * lambda_p) / (e * denom_sell_4)
+        term13 = - (p2 * (delta_p**2) * lambda_p) / (e * denom_sell_2)
+        term14 = - (2 * p2 * y0 * delta_p * lambda_p) / (e * denom_sell_2)
 
-        # Penalty term:
-        term15 = (12 * self.p4 * self.pen_const) / (y**5)
+        # The phi term:
+        term15 = (12 * p4 * phi) / (y0**5)
 
-        psi3 = term1 + term2 + term3 + term4 + term5 + term6 + term7 + \
-            term8 + term9 + term10 + term11 + term12 + term13 + term14 + term15
+        return (term1 + term2 + term3 + term4 + term5 +
+                term6 + term7 + term8 + term9 + term10 +
+                term11 + term12 + term13 + term14 + term15)
 
-        return psi3
 
     def compute_psi_4(self):
-        """
-    Computes psi_4 using the new expression:
-    
-      psi_4 = [4 p^2 y_0 delta^- lambda^- - 2 p^2 (delta^-)^2 lambda^-] / [e k (2 y_0^2 - y_0 delta^-)^2]
-            + [2 p^2 (delta^+)^2 lambda^+ + 4 p^2 y_0 delta^+ lambda^+] / [e k (y_0 delta^+ + 2 y_0^2)^2]
-            - [4 p^2 phi] / [y_0^3]
-        """
-        y = self.y_0
+        # Shorthand assignments:
+        y0 = self.y_0              # y₀
+        p2 = self.depth            # p²
+        k = self.kappa             # k
+        e = self.e                 # e
+        delta_m = self.delta_minus # δ⁻
+        delta_p = self.delta_plus  # δ⁺
+        lambda_m = self.int_buy    # λ⁻
+        lambda_p = self.int_sell   # λ⁺
 
-        # Denominator for the buy side:
-        denom_buy = (2 * y**2 - y * self.delta_minus)**2
-        # Denominator for the sell side:
-        denom_sell = (y * self.delta_plus + 2 * y**2)**2
+        # Denominators for the buy side:
+        denom_buy_1 = (y0**2 - y0 * delta_m)
+        denom_buy_2 = denom_buy_1**2
 
-        # Buy-side term:
-        term_buy = (4 * self.depth * y * self.delta_minus * self.int_buy - 
-                    2 * self.depth * self.delta_minus**2 * self.int_buy) / (self.e * self.kappa * denom_buy)
-        
-        # Sell-side term:
-        term_sell = (2 * self.depth * self.delta_plus**2 * self.int_sell + 
-                    4 * self.depth * y * self.delta_plus * self.int_sell) / (self.e * self.kappa * denom_sell)
-        
-        # Penalty term:
-        term_pen = (4 * self.depth * self.pen_const) / (y**3)
-        
-        return term_buy + term_sell - term_pen
+        # Denominators for the sell side:
+        denom_sell_1 = (y0**2 + y0 * delta_p)
+        denom_sell_2 = denom_sell_1**2
+
+        # Terms as per the LaTeX expression:
+        term1 = - (k * p2 * lambda_m * (delta_m**4)) / (e * denom_buy_2)
+        term2 = (2 * k * p2 * lambda_m * (delta_m**2)) / (e * denom_buy_1)
+        term3 = (4 * k * p2 * y0**2 * lambda_m * (delta_m**2)) / (e * denom_buy_2)
+        term4 = - (2 * lambda_m * delta_m) / e
+        term5 = (2 * lambda_p * delta_p) / e
+        term6 = (2 * k * p2 * (delta_p**2) * lambda_p) / (e * denom_sell_1)
+        term7 = - (k * p2 * (delta_p**4) * lambda_p) / (e * denom_sell_2)
+        term8 = (4 * k * p2 * y0**2 * (delta_p**2) * lambda_p) / (e * denom_sell_2)
+
+        return term1 + term2 + term3 + term4 + term5 + term6 + term7 + term8
+
+
 
     def compute_psi_5(self):
-        """
-        Computes psi_5 using the new expression:
+        # LaTeX for Ψ₅:
+        # Ψ₅ = ( -2·k·(δ⁺)³·λ⁺ + 2·k·(δ⁻)³·λ⁻ )/E
+        e = self.e
+        k = self.kappa
+        δm = self.delta_minus
+        δp = self.delta_plus
+        λm = self.int_buy
+        λp = self.int_sell
+        term1 = (2 * k * (δp**3) * λp) / e
+        term2 = - (2 * k * (δm**3) * λm) / e
+        return term1 + term2
 
-        psi_5 = -[2 p^2 (delta^-)^3 lambda^-]      / [e k (2 y_0^2 - y_0 delta^-)^2]
-                + [4 p^2 (delta^-)^2 lambda^-]          / [e k (y_0^2 - y_0 delta^-)]
-                + [8 p^2 y_0^2 delta^- lambda^-]         / [e k (2 y_0^2 - y_0 delta^-)^2]
-                - [2 delta^- lambda^-]                   / [e k]
-                + [4 p^2 (delta^+)^2 lambda^+]           / [e k (y_0 delta^+ + y_0^2)]
-                + [8 p^2 y_0^2 delta^+ lambda^+]          / [e k (y_0 delta^+ + 2 y_0^2)^2]
-                - [2 p^2 (delta^+)^3 lambda^+]           / [e k (y_0 delta^+ + 2 y_0^2)^2]
-                + [2 delta^+ lambda^+]                   / [e k]
-        """
-        y = self.y_0
-
-        # Precompute denominators for the buy side:
-        denom_buy_1 = (2 * y**2 - y * self.delta_minus)**2  # used in terms 1 and 3 (buy side)
-        denom_buy_2 = (y**2 - y * self.delta_minus)           # used in term 2 (buy side)
-        
-        # Precompute denominators for the sell side:
-        denom_sell_1 = (y * self.delta_plus + 2 * y**2)**2     # used in terms 6 and 7 (sell side)
-        denom_sell_2 = (y * self.delta_plus + y**2)            # used in term 5 (sell side)
-
-        # Buy side terms (with lambda^- = self.int_buy and delta^- = self.delta_minus):
-        term1 = - (2 * self.depth * self.delta_minus**3 * self.int_buy) / (self.e * self.kappa * denom_buy_1)
-        term2 =   (4 * self.depth * self.delta_minus**2 * self.int_buy) / (self.e * self.kappa * denom_buy_2)
-        term3 =   (8 * self.depth * y**2 * self.delta_minus * self.int_buy) / (self.e * self.kappa * denom_buy_1)
-        term4 =   - (2 * self.delta_minus * self.int_buy) / (self.e * self.kappa)
-
-        # Sell side terms (with lambda^+ = self.int_sell and delta^+ = self.delta_plus):
-        term5 =   (4 * self.depth * self.delta_plus**2 * self.int_sell) / (self.e * self.kappa * denom_sell_2)
-        term6 =   (8 * self.depth * y**2 * self.delta_plus * self.int_sell) / (self.e * self.kappa * denom_sell_1)
-        term7 =   - (2 * self.depth * self.delta_plus**3 * self.int_sell) / (self.e * self.kappa * denom_sell_1)
-        term8 =   (2 * self.delta_plus * self.int_sell) / (self.e * self.kappa)
-
-        psi5 = term1 + term2 + term3 + term4 + term5 + term6 + term7 + term8
-        return psi5
 
     def compute_psi_6(self):
-        """
-        psi_6 = -4 (delta^-)^2 int_buy / (e kappa) - 4 (delta^+)^2 int_sell / (e kappa)
-        """
-        return (
-            -(4 * (self.delta_minus**2) * self.int_buy)/(self.e * self.kappa)
-            - (4 * (self.delta_plus**2)  * self.int_sell)/(self.e * self.kappa)
-        )
+        # LaTeX for Ψ₆:
+        # Ψ₆ = ( -2·k·(δ⁻)·λ⁻ + 2·k·(δ⁺)·λ⁺ )/E
+        e = self.e
+        k = self.kappa
+        δm = self.delta_minus
+        δp = self.delta_plus
+        λm = self.int_buy
+        λp = self.int_sell
+        term1 = (2 * k * (δm**2) * λm) / e
+        term2 = (2 * k * (δp**2) * λp) / e
+        return term1 + term2
+
 
     def compute_psi_7(self):
-        """
-        psi_7 = 4 (delta^+)^3 int_sell / (e kappa) - 4 (delta^-)^3 int_buy / (e kappa)
-        """
-        return (
-            (4 * (self.delta_plus**3)  * self.int_sell)/(self.e * self.kappa)
-            - (4 * (self.delta_minus**3) * self.int_buy)/(self.e * self.kappa)
-        )
+        # Shorthand assignments:
+        y0 = self.y_0              # y₀
+        p2 = self.depth            # p²
+        k = self.kappa             # k
+        e = self.e                 # e
+        delta_m = self.delta_minus # δ⁻
+        delta_p = self.delta_plus  # δ⁺
+        lambda_m = self.int_buy    # λ⁻
+        lambda_p = self.int_sell   # λ⁺
+
+        # Denominators:
+        denom_buy = (y0**2 - y0 * delta_m)**2
+        denom_sell = (y0**2 + y0 * delta_p)**2
+
+        term1 = (k * p2 * lambda_m * (delta_m**3)) / (e * denom_buy)
+        term2 = - (2 * k * p2 * y0 * lambda_m * (delta_m**2)) / (e * denom_buy)
+        term3 = - (k * p2 * lambda_p * (delta_p**3)) / (e * denom_sell)
+        term4 = - (2 * k * p2 * y0 * lambda_p * (delta_p**2)) / (e * denom_sell)
+
+        return term1 + term2 + term3 + term4
+
 
     def compute_psi_8(self):
-        """
-        psi_8 = 4 (delta^-)^2 int_buy / (e kappa) + 4 (delta^+)^2 int_sell / (e kappa)
-        """
-        return (
-            (4 * (self.delta_minus**2) * self.int_buy)/(self.e * self.kappa)
-            + (4 * (self.delta_plus**2)  * self.int_sell)/(self.e * self.kappa)
-        )
+        # Shorthand assignments:
+        y0 = self.y_0              # y₀
+        p2 = self.depth            # p²
+        k = self.kappa             # k
+        e = self.e                 # e
+        delta_m = self.delta_minus # δ⁻
+        delta_p = self.delta_plus  # δ⁺
+        lambda_m = self.int_buy    # λ⁻
+        lambda_p = self.int_sell   # λ⁺
+        phi = self.pen_const       # φ
+
+        # Denominators:
+        denom_buy = (y0**2 - y0 * delta_m)**2
+        # For the sell side, we use (y0*delta_p + y0^2)^2 (which equals y0^2 + y0*delta_p squared)
+        denom_sell = (y0 * delta_p + y0**2)**2
+
+        term1 = - (k * p2 * lambda_m * (delta_m**3)) / (e * denom_buy)
+        term2 = (2 * k * p2 * y0 * lambda_m * (delta_m**2)) / (e * denom_buy)
+        term3 = (k * p2 * lambda_p * (delta_p**3)) / (e * denom_sell)
+        term4 = (2 * k * p2 * y0 * lambda_p * (delta_p**2)) / (e * denom_sell)
+        term5 = - (4 * p2 * phi) / (y0**3)
+
+        return term1 + term2 + term3 + term4 + term5
+
 
     def compute_psi_9(self):
-        """
-        Computes psi_9 given by:
-        
-        psi_9 = [2 p^2 (delta^-)^2 lambda^- - 4 p^2 y_0 delta^- lambda^-] 
-                / [e k (2 y_0^2 - y_0 delta^-)^2]
-                - [2 p^2 (delta^+)^2 lambda^+ + 4 p^2 y_0 delta^+ lambda^+]
-                / [e k (y_0 delta^+ + 2 y_0^2)^2]
-        """
-        y = self.y_0
-        
-        # Buy-side denominator: (2 y_0^2 - y_0 delta^-)^2
-        denom_buy = (2 * y**2 - y * self.delta_minus)**2
-        # Sell-side denominator: (y_0 delta^+ + 2 y_0^2)^2
-        denom_sell = (y * self.delta_plus + 2 * y**2)**2
-        
-        # Buy-side contribution:
-        psi9_buy = (2 * self.depth * self.delta_minus**2 * self.int_buy - 
-                    4 * self.depth * y * self.delta_minus * self.int_buy) \
-                    / (self.e * self.kappa * denom_buy)
-        
-        # Sell-side contribution:
-        psi9_sell = - (2 * self.depth * self.delta_plus**2 * self.int_sell + 
-                    4 * self.depth * y * self.delta_plus * self.int_sell) \
-                    / (self.e * self.kappa * denom_sell)
-        
-        return psi9_buy + psi9_sell
+        # LaTeX for Ψ₉:
+        # Ψ₉ = ( -2·k·(δ⁻)²·λ⁻ + 2·k·(δ⁺)²·λ⁺ )/E
+        e  = self.e
+        k  = self.kappa
+        δm = self.delta_minus
+        δp = self.delta_plus
+        λm = self.int_buy
+        λp = self.int_sell
+        term1 = (-2 * k * (δm**2) * λm) / e
+        term2 = (-2 * k * (δp**2) * λp) / e
+        return term1 + term2
+
 
     def compute_psi_10(self):
-        """
-        Computes psi_10 given by:
-        
-        psi_10 = [p^4 (delta^-)^2 lambda^-] / [e k (y_0^2 - y_0 delta^-)^2]
-                + [4 p^4 y_0^2 delta^- lambda^-] / [e k (y_0^2-y_0 delta^-)(2 y_0^2-y_0 delta^-)^2]
-                + [4 p^4 y_0^4 lambda^-] / [e k (2 y_0^2-y_0 delta^-)^4]
-                + [p^4 y_0^2 (delta^-)^2 lambda^-] / [e k (2 y_0^2-y_0 delta^-)^4]
-                - [2 p^4 y_0 (delta^-)^2 lambda^-] / [e k (y_0^2-y_0 delta^-)(2 y_0^2-y_0 delta^-)^2]
-                - [4 p^4 y_0^3 delta^- lambda^-] / [e k (2 y_0^2-y_0 delta^-)^4]
-                + [p^2 y_0 delta^- lambda^-] / [e k (2 y_0^2-y_0 delta^-)^2]
-                - [p^2 delta^- lambda^-] / [e k (y_0^2-y_0 delta^-)]
-                - [2 p^2 y_0^2 lambda^-] / [e k (2 y_0^2-y_0 delta^-)^2]
-                + [lambda^-] / [e k]
-                + [p^4 (delta^+)^2 lambda^+] / [e k (y_0 delta^+ + y_0^2)^2]
-                + [2 p^4 y_0 (delta^+)^2 lambda^+] / [e k (y_0 delta^+ + y_0^2)(y_0 delta^+ + 2 y_0^2)^2]
-                + [4 p^4 y_0^2 delta^+ lambda^+] / [e k (y_0 delta^+ + y_0^2)(y_0 delta^+ + 2 y_0^2)^2]
-                + [4 p^4 y_0^4 lambda^+] / [e k (y_0 delta^+ + 2 y_0^2)^4]
-                + [p^4 y_0^2 (delta^+)^2 lambda^+] / [e k (y_0 delta^+ + 2 y_0^2)^4]
-                + [4 p^4 y_0^3 delta^+ lambda^+] / [e k (y_0 delta^+ + 2 y_0^2)^4]
-                + [p^2 delta^+ lambda^+] / [e k (y_0 delta^+ + y_0^2)]
-                + [2 p^2 y_0^2 lambda^+] / [e k (y_0 delta^+ + 2 y_0^2)^2]
-                + [p^2 y_0 delta^+ lambda^+] / [e k (y_0 delta^+ + 2 y_0^2)^2]
-                + [lambda^+] / [e k]
-                - [9 p^4 phi] / [y_0^4]
-        """
-        y  = self.y_0
-        dm = self.delta_minus
-        dp = self.delta_plus
+        # LaTeX for Ψ₁₀:
+        # Ψ₁₀ = ( 2·k·(δ⁻)²·λ⁻ - 2·k·(δ⁺)²·λ⁺ )/E
+        e  = self.e
+        k  = self.kappa
+        δm = self.delta_minus
+        δp = self.delta_plus
+        λm = self.int_buy
+        λp = self.int_sell
+        term1 = (2 * k * (δm**2) * λm) / e
+        term2 = (2 * k * (δp**2) * λp) / e
+        return term1 + term2
 
-        # Precompute common denominators for the buy side (involving delta^-):
-        D_b_a = (y**2 - y * dm)         # appears squared in some terms
-        D_b_b = (2 * y**2 - y * dm)       # appears squared or to the 4th power
-
-        # Precompute denominators for the sell side (involving delta^+):
-        D_s_a = (y * dp + y**2)
-        D_s_b = (y * dp + 2 * y**2)
-        
-        # --- Buy-side terms (using lambda^- = self.int_buy) ---
-        term1  =  (self.p4 * dm**2 * self.int_buy) / (self.e * self.kappa * (D_b_a**2))
-        term2  =  (4 * self.p4 * y**2 * dm * self.int_buy) / (self.e * self.kappa * (D_b_a * (D_b_b**2)))
-        term3  =  (4 * self.p4 * y**4 * self.int_buy) / (self.e * self.kappa * (D_b_b**4))
-        term4  =  (self.p4 * y**2 * dm**2 * self.int_buy) / (self.e * self.kappa * (D_b_b**4))
-        term5  = - (2 * self.p4 * y * dm**2 * self.int_buy) / (self.e * self.kappa * (D_b_a * (D_b_b**2)))
-        term6  = - (4 * self.p4 * y**3 * dm * self.int_buy) / (self.e * self.kappa * (D_b_b**4))
-        term7  =  (self.depth * y * dm * self.int_buy) / (self.e * self.kappa * (D_b_b))
-        term8  = - (self.depth * dm * self.int_buy) / (self.e * self.kappa * D_b_a)
-        term9  = - (2 * self.depth * y**2 * self.int_buy) / (self.e * self.kappa * (D_b_b))
-        term10 =  (self.int_buy) / (self.e * self.kappa)
-        
-        # --- Sell-side terms (using lambda^+ = self.int_sell) ---
-        term11 =  (self.p4 * dp**2 * self.int_sell) / (self.e * self.kappa * (D_s_a**2))
-        term12 =  (2 * self.p4 * y * dp**2 * self.int_sell) / (self.e * self.kappa * (D_s_a * (D_s_b**2)))
-        term13 =  (4 * self.p4 * y**2 * dp * self.int_sell) / (self.e * self.kappa * (D_s_a * (D_s_b**2)))
-        term14 =  (4 * self.p4 * y**4 * self.int_sell) / (self.e * self.kappa * (D_s_b**4))
-        term15 =  (self.p4 * y**2 * dp**2 * self.int_sell) / (self.e * self.kappa * (D_s_b**4))
-        term16 =  (4 * self.p4 * y**3 * dp * self.int_sell) / (self.e * self.kappa * (D_s_b**4))
-        term17 =  (self.depth * dp * self.int_sell) / (self.e * self.kappa * D_s_a)
-        term18 =  (2 * self.depth * y**2 * self.int_sell) / (self.e * self.kappa * (D_s_b))
-        term19 =  (self.depth * y * dp * self.int_sell) / (self.e * self.kappa * (D_s_b))
-        term20 =  (self.int_sell) / (self.e * self.kappa)
-        
-        # --- Penalty term ---
-        term_pen = - (9 * self.p4 * self.pen_const) / (y**4)
-        
-        psi10 = (term1 + term2 + term3 + term4 + term5 + term6 + term7 +
-                term8 + term9 + term10 + term11 + term12 + term13 + term14 +
-                term15 + term16 + term17 + term18 + term19 + term20 + term_pen)
-        
-        return psi10
 
     def compute_psi_11(self):
         """
-        Computes psi_11 given by:
-        
-        psi_11 = [2 p^2 y_0 (delta^-)^2 lambda^-]    / [e k (2 y_0^2 - y_0 delta^-)^2]
-                - [2 p^2 (delta^-)^2 lambda^-]          / [e k (y_0^2 - y_0 delta^-)]
-                - [4 p^2 y_0^2 delta^- lambda^-]         / [e k (2 y_0^2 - y_0 delta^-)^2]
-                + [delta^- lambda^-]                     / [e k]
-                - [2 p^2 (delta^+)^2 lambda^+]           / [e k (y_0 delta^+ + y_0^2)]
-                - [2 p^2 y_0 (delta^+)^2 lambda^+]       / [e k (y_0 delta^+ + 2 y_0^2)^2]
-                - [4 p^2 y_0^2 delta^+ lambda^+]          / [e k (y_0 delta^+ + 2 y_0^2)^2]
-                - [delta^+ lambda^+]                     / [e k]
-                + [6 p^2 phi] / [y_0^2]
+        Psi11 =
+        ( k * p^2 * λ^- * (δ^-)^3 ) / ( e * (y0^2 - y0*δ^-)^2 )
+        - ( 2 * k * p^2 * y0 * λ^- * (δ^-)^2 ) / ( e * (y0^2 - y0*δ^-)^2 )
+        - ( k * p^2 * (δ^+)^3 * λ^+ ) / ( e * (y0^2 + y0*δ^+)^2 )
+        - ( 2 * k * p^2 * y0 * (δ^+)^2 * λ^+ ) / ( e * (y0^2 + y0*δ^+)^2 )
         """
-        y = self.y_0
+        y0 = self.y_0              # y₀
+        p2 = self.depth            # p²
+        k = self.kappa             # k
+        e = self.e                 # e
+        delta_m = self.delta_minus # δ⁻
+        delta_p = self.delta_plus  # δ⁺
+        lambda_m = self.int_buy    # λ⁻
+        lambda_p = self.int_sell   # λ⁺
 
-        # Precompute denominators for the buy side:
-        D_b1 = (2 * y**2 - y * self.delta_minus)   # appears squared in some terms
-        D_b2 = (y**2 - y * self.delta_minus)
-        
-        # Precompute denominators for the sell side:
-        D_s1 = (y * self.delta_plus + y**2)
-        D_s2 = (y * self.delta_plus + 2 * y**2)
-        
-        # Buy-side terms (using lambda^- = self.int_buy)
-        term1 = (2 * self.depth * y * self.delta_minus**2 * self.int_buy) / (self.e * self.kappa * (D_b1**2))
-        term2 = - (2 * self.depth * self.delta_minus**2 * self.int_buy) / (self.e * self.kappa * D_b2)
-        term3 = - (4 * self.depth * y**2 * self.delta_minus * self.int_buy) / (self.e * self.kappa * (D_b1**2))
-        term4 = (self.delta_minus * self.int_buy) / (self.e * self.kappa)
-        
-        # Sell-side terms (using lambda^+ = self.int_sell)
-        term5 = - (2 * self.depth * self.delta_plus**2 * self.int_sell) / (self.e * self.kappa * D_s1)
-        term6 = - (2 * self.depth * y * self.delta_plus**2 * self.int_sell) / (self.e * self.kappa * (D_s2**2))
-        term7 = - (4 * self.depth * y**2 * self.delta_plus * self.int_sell) / (self.e * self.kappa * (D_s2**2))
-        term8 = - (self.delta_plus * self.int_sell) / (self.e * self.kappa)
-        
-        # Penalty term:
-        term_pen = (6 * self.depth * self.pen_const) / (y**2)
-        
-        psi11 = term1 + term2 + term3 + term4 + term5 + term6 + term7 + term8 + term_pen
-        return psi11
+        denom_buy = (y0**2 - y0 * delta_m)**2
+        denom_sell = (y0**2 + y0 * delta_p)**2
+
+        term1 = (k * p2 * lambda_m * (delta_m**3)) / (e * denom_buy)
+        term2 = - (2 * k * p2 * y0 * lambda_m * (delta_m**2)) / (e * denom_buy)
+        term3 = - (k * p2 * lambda_p * (delta_p**3)) / (e * denom_sell)
+        term4 = - (2 * k * p2 * y0 * lambda_p * (delta_p**2)) / (e * denom_sell)
+
+        return term1 + term2 + term3 + term4
+
 
     def compute_psi_12(self):
         """
-        psi_12 = (delta^-)^2 int_buy / (e kappa)
-               + (delta^+)^2 int_sell / (e kappa)
-               - pen_const
+        Psi12 =
+        [ k * (δ^-)^2 * λ^- * p^4 ] / [ 2 e (y0^2 - y0 δ^-)^2 ]
+        - [ k * y0 * (δ^-)^3 * λ^- * p^4 ] / [ e (y0^2 - y0 δ^-)^3 ]
+        + [ 2 k * y0^2 * (δ^-)^2 * λ^- * p^4 ] / [ e (y0^2 - y0 δ^-)^3 ]
+        + [ k * y0^2 * (δ^-)^4 * λ^- * p^4 ] / [ 2 e (y0^2 - y0 δ^-)^4 ]
+        - [ 2 k * y0^3 * (δ^-)^3 * λ^- * p^4 ] / [ e (y0^2 - y0 δ^-)^4 ]
+        + [ 2 k * y0^4 * (δ^-)^2 * λ^- * p^4 ] / [ e (y0^2 - y0 δ^-)^4 ]
+        + [ k * (δ^+)^2 * λ^+ * p^4 ] / [ 2 e (y0^2 + y0 δ^+)^2 ]
+        + [ k * y0 * (δ^+)^3 * λ^+ * p^4 ] / [ e (y0^2 + y0 δ^+)^3 ]
+        + [ 2 k * y0^2 * (δ^+)^2 * λ^+ * p^4 ] / [ e (y0^2 + y0 δ^+)^3 ]
+        + [ k * y0^2 * (δ^+)^4 * λ^+ * p^4 ] / [ 2 e (y0^2 + y0 δ^+)^4 ]
+        + [ 2 k * y0^3 * (δ^+)^3 * λ^+ * p^4 ] / [ e (y0^2 + y0 δ^+)^4 ]
+        + [ 2 k * y0^4 * (δ^+)^2 * λ^+ * p^4 ] / [ e (y0^2 + y0 δ^+)^4 ]
+        - [ 9 φ p^4 ] / [ y0^4 ]
+        - [ δ^- λ^- p^2 ] / [ e (y0^2 - y0 δ^-) ]
+        + [ y0 (δ^-)^2 λ^- p^2 ] / [ e (y0^2 - y0 δ^-)^2 ]
+        - [ 2 y0^2 δ^- λ^- p^2 ] / [ e (y0^2 - y0 δ^-)^2 ]
+        + [ δ^+ λ^+ p^2 ] / [ e (y0^2 + y0 δ^+) ]
+        + [ y0 (δ^+)^2 λ^+ p^2 ] / [ e (y0^2 + y0 δ^+)^2 ]
+        + [ 2 y0^2 δ^+ λ^+ p^2 ] / [ e (y0^2 + y0 δ^+)^2 ]
+        + (λ^-)/(e k)
+        + (λ^+)/(e k)
+        + [c0'(t)]  (ignored)
         """
-        return (
-            (self.delta_minus**2 * self.int_buy)/(self.e * self.kappa)
-            + (self.delta_plus**2  * self.int_sell)/(self.e * self.kappa)
-            - self.pen_const
-        )
+        y0 = self.y_0              # y₀
+        p4 = self.p4               # p^4
+        p2 = self.depth            # p^2
+        k = self.kappa             # k
+        e = self.e                 # e
+        phi = self.pen_const       # φ
+        delta_m = self.delta_minus # δ⁻
+        delta_p = self.delta_plus  # δ⁺
+        lambda_m = self.int_buy    # λ⁻
+        lambda_p = self.int_sell   # λ⁺
+
+        # Denominators for the buy side:
+        denom_buy_1 = (y0**2 - y0 * delta_m)         # power 1
+        denom_buy_2 = denom_buy_1**2                  # power 2
+        denom_buy_3 = denom_buy_1**3                  # power 3
+        denom_buy_4 = denom_buy_1**4                  # power 4
+
+        # Denominators for the sell side:
+        denom_sell_1 = (y0**2 + y0 * delta_p)         # power 1
+        denom_sell_2 = denom_sell_1**2                # power 2
+        denom_sell_3 = denom_sell_1**3                # power 3
+        denom_sell_4 = denom_sell_1**4                # power 4
+
+        # Buy-side terms:
+        A = (k * (delta_m**2) * lambda_m * p4) / (2 * e * denom_buy_2)
+        B = - (k * y0 * (delta_m**3) * lambda_m * p4) / (e * denom_buy_3)
+        C = (2 * k * y0**2 * (delta_m**2) * lambda_m * p4) / (e * denom_buy_3)
+        D = (k * y0**2 * (delta_m**4) * lambda_m * p4) / (2 * e * denom_buy_4)
+        E = - (2 * k * y0**3 * (delta_m**3) * lambda_m * p4) / (e * denom_buy_4)
+        F = (2 * k * y0**4 * (delta_m**2) * lambda_m * p4) / (e * denom_buy_4)
+
+        # Sell-side terms:
+        G = (k * (delta_p**2) * lambda_p * p4) / (2 * e * denom_sell_2)
+        H = (k * y0 * (delta_p**3) * lambda_p * p4) / (e * denom_sell_3)
+        I = (2 * k * y0**2 * (delta_p**2) * lambda_p * p4) / (e * denom_sell_3)
+        J = (k * y0**2 * (delta_p**4) * lambda_p * p4) / (2 * e * denom_sell_4)
+        K = (2 * k * y0**3 * (delta_p**3) * lambda_p * p4) / (e * denom_sell_4)
+        L = (2 * k * y0**4 * (delta_p**2) * lambda_p * p4) / (e * denom_sell_4)
+
+        M = - (9 * phi * p4) / (y0**4)
+
+        # Buy-side p2 terms:
+        N = - (delta_m * lambda_m * p2) / (e * denom_buy_1)
+        O = (y0 * (delta_m**2) * lambda_m * p2) / (e * denom_buy_2)
+        P = - (2 * y0**2 * delta_m * lambda_m * p2) / (e * denom_buy_2)
+
+        # Sell-side p2 terms:
+        Q = (delta_p * lambda_p * p2) / (e * denom_sell_1)
+        R = (y0 * (delta_p**2) * lambda_p * p2) / (e * denom_sell_2)
+        S = (2 * y0**2 * delta_p * lambda_p * p2) / (e * denom_sell_2)
+
+        # Additional terms:
+        T = lambda_m / (e * k)
+        U = lambda_p / (e * k)
+
+        # Ignore the derivative term c0'(t)
+
+        return (A + B + C + D + E + F +
+                G + H + I + J + K + L +
+                M + N + O + P + Q + R + S +
+                T + U)
+
 
     def compute_psi_13(self):
         """
-        Computes psi_13 according to:
-        
-        psi_13 = [2 p^2 y_0 (delta^-)^3 lambda^-] / [e k (2 y_0^2 - y_0 delta^-)^2]
-                - [2 p^2 (delta^-)^3 lambda^-]   / [e k (y_0^2 - y_0 delta^-)]
-                - [4 p^2 y_0^2 (delta^-)^2 lambda^-] / [e k (2 y_0^2 - y_0 delta^-)^2]
-                + [(delta^-)^2 lambda^-]           / [e k]
-                + [2 p^2 (delta^+)^3 lambda^+]      / [e k (y_0 delta^+ + y_0^2)]
-                + [2 p^2 y_0 (delta^+)^3 lambda^+]   / [e k (y_0 delta^+ + 2 y_0^2)^2]
-                + [4 p^2 y_0^2 (delta^+)^2 lambda^+]  / [e k (y_0 delta^+ + 2 y_0^2)^2]
-                + [(delta^+)^2 lambda^+]           / [e k]
+        Psi13 =
+        ( k * p^2 * y0 * λ^- * (δ^-)^4 ) / ( e * (y0^2 - y0 δ^-)^2 )
+        - ( k * p^2 * λ^- * (δ^-)^3 ) / ( e * (y0^2 - y0 δ^-) )
+        - ( 2 k * p^2 * y0^2 * λ^- * (δ^-)^3 ) / ( e * (y0^2 - y0 δ^-)^2 )
+        + ( λ^- * (δ^-)^2 ) / e
+        + ( (δ^+)^2 * λ^+ ) / e
+        + ( k * p^2 * (δ^+)^3 * λ^+ ) / ( e * (y0^2 + y0 δ^+) )
+        + ( k * p^2 * y0 * (δ^+)^4 * λ^+ ) / ( e * (y0^2 + y0 δ^+)^2 )
+        + ( 2 k * p^2 * y0^2 * (δ^+)^3 * λ^+ ) / ( e * (y0^2 + y0 δ^+)^2 )
         """
-        y  = self.y_0
-        dm = self.delta_minus
-        dp = self.delta_plus
+        y0 = self.y_0              # y₀
+        p2 = self.depth            # p²
+        k = self.kappa             # k
+        e = self.e                 # e
+        delta_m = self.delta_minus # δ⁻
+        delta_p = self.delta_plus  # δ⁺
+        lambda_m = self.int_buy    # λ⁻
+        lambda_p = self.int_sell   # λ⁺
 
-        # Precompute denominators for the buy side:
-        D_b1 = (y**2 - y * dm)         # denominator from second term
-        D_b2 = (2 * y**2 - y * dm)       # appears squared in first and third terms
+        # Denominators for the buy side:
+        denom_buy_1 = (y0**2 - y0 * delta_m)       # power 1
+        denom_buy_2 = denom_buy_1**2                # power 2
 
-        # Precompute denominators for the sell side:
-        D_s1 = (y * dp + y**2)          # denominator for the 5th term
-        D_s2 = (y * dp + 2 * y**2)        # appears squared in 6th and 7th terms
+        # Denominators for the sell side:
+        denom_sell_1 = (y0**2 + y0 * delta_p)       # power 1
+        denom_sell_2 = denom_sell_1**2              # power 2
 
-        # Buy-side terms (with lambda^- = self.int_buy):
-        term1 = (2 * self.depth * y * dm**3 * self.int_buy) / (self.e * self.kappa * (D_b2**2))
-        term2 = - (2 * self.depth * dm**3 * self.int_buy) / (self.e * self.kappa * D_b1)
-        term3 = - (4 * self.depth * y**2 * dm**2 * self.int_buy) / (self.e * self.kappa * (D_b2**2))
-        term4 = (dm**2 * self.int_buy) / (self.e * self.kappa)
+        term1 = (k * p2 * y0 * lambda_m * (delta_m**4)) / (e * denom_buy_2)
+        term2 = - (k * p2 * lambda_m * (delta_m**3)) / (e * denom_buy_1)
+        term3 = - (2 * k * p2 * y0**2 * lambda_m * (delta_m**3)) / (e * denom_buy_2)
+        term4 = (lambda_m * (delta_m**2)) / e
+        term5 = (lambda_p * (delta_p**2)) / e
+        term6 = (k * p2 * lambda_p * (delta_p**3)) / (e * denom_sell_1)
+        term7 = (k * p2 * y0 * lambda_p * (delta_p**4)) / (e * denom_sell_2)
+        term8 = (2 * k * p2 * y0**2 * lambda_p * (delta_p**3)) / (e * denom_sell_2)
 
-        # Sell-side terms (with lambda^+ = self.int_sell):
-        term5 = (2 * self.depth * dp**3 * self.int_sell) / (self.e * self.kappa * D_s1)
-        term6 = (2 * self.depth * y * dp**3 * self.int_sell) / (self.e * self.kappa * (D_s2**2))
-        term7 = (4 * self.depth * y**2 * dp**2 * self.int_sell) / (self.e * self.kappa * (D_s2**2))
-        term8 = (dp**2 * self.int_sell) / (self.e * self.kappa)
+        return term1 + term2 + term3 + term4 + term5 + term6 + term7 + term8
 
-        psi13 = term1 + term2 + term3 + term4 + term5 + term6 + term7 + term8
-        return psi13
 
     def compute_psi_14(self):
-        """
-        psi_14 = 2 (delta^-)^3 int_buy /(e kappa)
-               - 2 (delta^+)^3 int_sell/(e kappa)
-        """
-        return (
-            (2 * (self.delta_minus**3) * self.int_buy)/(self.e * self.kappa)
-            - (2 * (self.delta_plus**3)  * self.int_sell)/(self.e * self.kappa)
-        )
+        # LaTeX for Ψ₁₄:
+        # Ψ₁₄ = ( -4·k·δ⁻·λ⁻ + 4·k·δ⁺·λ⁺ )/(2·E)
+        e = self.e
+        k = self.kappa
+        δm = self.delta_minus
+        δp = self.delta_plus
+        λm = self.int_buy
+        λp = self.int_sell
+        term1 = (k * (δm**4) * λm) / (2 * e)
+        term2 = (k * (δp**4) * λp) / (2 * e)
+        return term1 + term2
+
 
     def compute_psi_15(self):
-        """
-        psi_15 = (delta^-)^4 int_buy /(e kappa)
-               + (delta^+)^4 int_sell/(e kappa)
-        """
-        return (
-            (self.delta_minus**4 * self.int_buy)/(self.e * self.kappa)
-            + (self.delta_plus**4  * self.int_sell)/(self.e * self.kappa)
-        )
+        # LaTeX for Ψ₁₅:
+        # Ψ₁₅ = ( -3·k·δ⁻·λ⁻ + 3·k·δ⁺·λ⁺ )/E
+        e = self.e
+        k = self.kappa
+        δm = self.delta_minus
+        δp = self.delta_plus
+        λm = self.int_buy
+        λp = self.int_sell
+        term1 = -(k * (δm**3) * λm) / e
+        term2 = (k * (δp**3) * λp) / e
+        return term1 + term2
+
 
     def compute_psi_16(self):
         """
-        psi_16 = 2 (delta^+)^3 int_sell/(e kappa)
-               - 2 (delta^-)^3 int_buy /(e kappa)
+        Psi16 =
+        - ( k * p^2 * y0 * λ^- * (δ^-)^3 ) / ( e * (y0^2 - y0 δ^-)^2 )
+        +   ( k * p^2 * λ^- * (δ^-)^2 ) / ( e * (y0^2 - y0 δ^-) )
+        +   ( 2 k * p^2 * y0^2 * λ^- * (δ^-)^2 ) / ( e * (y0^2 - y0 δ^-)^2 )
+        -   ( λ^- * δ^- ) / e
+        +   ( δ^+ * λ^+ ) / e
+        +   ( k * p^2 * (δ^+)^2 * λ^+ ) / ( e * (y0^2 + y0 δ^+) )
+        +   ( k * p^2 * y0 * (δ^+)^3 * λ^+ ) / ( e * (y0^2 + y0 δ^+)^2 )
+        +   ( 2 k * p^2 * y0^2 * (δ^+)^2 * λ^+ ) / ( e * (y0^2 + y0 δ^+)^2 )
         """
-        return (
-            (2 * (self.delta_plus**3)  * self.int_sell)/(self.e * self.kappa)
-            - (2 * (self.delta_minus**3) * self.int_buy)/(self.e * self.kappa)
-        )
+        # Shorthand assignments
+        y0 = self.y_0              # y₀
+        p2 = self.depth            # p²
+        k = self.kappa             # k
+        e = self.e                 # e
+        delta_m = self.delta_minus # δ⁻
+        delta_p = self.delta_plus  # δ⁺
+        lambda_m = self.int_buy    # λ⁻
+        lambda_p = self.int_sell   # λ⁺
+
+        # Denominators for the buy side:
+        denom_buy_1 = (y0**2 - y0 * delta_m)        # power 1
+        denom_buy_2 = denom_buy_1**2                 # power 2
+
+        # Denominators for the sell side:
+        # Note: (y0^2 + y0 δ^+) is equivalent to (y0 δ^+ + y0^2)
+        denom_sell_1 = (y0**2 + y0 * delta_p)        # power 1
+        denom_sell_2 = denom_sell_1**2               # power 2
+
+        term1 = - (k * p2 * y0 * lambda_m * (delta_m**3)) / (e * denom_buy_2)
+        term2 =   (k * p2 * lambda_m * (delta_m**2)) / (e * denom_buy_1)
+        term3 =   (2 * k * p2 * y0**2 * lambda_m * (delta_m**2)) / (e * denom_buy_2)
+        term4 = - (lambda_m * delta_m) / e
+        term5 =   (delta_p * lambda_p) / e
+        term6 =   (k * p2 * (delta_p**2) * lambda_p) / (e * denom_sell_1)
+        term7 =   (k * p2 * y0 * (delta_p**3) * lambda_p) / (e * denom_sell_2)
+        term8 =   (2 * k * p2 * y0**2 * (delta_p**2) * lambda_p) / (e * denom_sell_2)
+
+        return term1 + term2 + term3 + term4 + term5 + term6 + term7 + term8
+
 
     def compute_psi_17(self):
-        """
-        Computes psi_17 given by:
-        
-        psi_17 = [2 p^2 y_0 (delta^-)^3 lambda^-]   / [e k (2 y_0^2 - y_0 delta^-)^2]
-                - [2 p^2 (delta^-)^3 lambda^-]         / [e k (y_0^2 - y_0 delta^-)]
-                - [4 p^2 y_0^2 (delta^-)^2 lambda^-]    / [e k (2 y_0^2 - y_0 delta^-)^2]
-                + [(delta^-)^2 lambda^-]                / [e k]
-                + [2 p^2 (delta^+)^3 lambda^+]          / [e k (y_0 delta^+ + y_0^2)]
-                + [2 p^2 y_0 (delta^+)^3 lambda^+]       / [e k (y_0 delta^+ + 2 y_0^2)^2]
-                + [4 p^2 y_0^2 (delta^+)^2 lambda^+]      / [e k (y_0 delta^+ + 2 y_0^2)^2]
-                + [(delta^+)^2 lambda^+]                / [e k]
-        """
-        y  = self.y_0
-        dm = self.delta_minus
-        dp = self.delta_plus
+        # LaTeX for Ψ₁₇:
+        # Ψ₁₇ = ( -2·k·(δ⁻)·λ⁻ + 2·k·(δ⁺)·λ⁺ )/(2·E)
+        e = self.e
+        k = self.kappa
+        δm = self.delta_minus
+        δp = self.delta_plus
+        λm = self.int_buy
+        λp = self.int_sell
+        term1 = (k * (δm**2) * λm) / (2 * e)
+        term2 = (k * (δp**2) * λp) / (2 * e)
+        return term1 + term2
 
-        # Precompute denominators for the buy side:
-        D_b1 = y**2 - y * dm          # Denom for the second term
-        D_b2 = 2 * y**2 - y * dm       # Denom for first and third terms (squared)
-
-        # Precompute denominators for the sell side:
-        D_s1 = y * dp + y**2          # Denom for the 5th term
-        D_s2 = y * dp + 2 * y**2       # Denom for 6th and 7th terms (squared)
-
-        # Buy-side terms (with lambda^- = self.int_buy):
-        term1 = (2 * self.depth * y * dm**3 * self.int_buy) / (self.e * self.kappa * (D_b2**2))
-        term2 = - (2 * self.depth * dm**3 * self.int_buy) / (self.e * self.kappa * D_b1)
-        term3 = - (4 * self.depth * y**2 * dm**2 * self.int_buy) / (self.e * self.kappa * (D_b2**2))
-        term4 = (dm**2 * self.int_buy) / (self.e * self.kappa)
-
-        # Sell-side terms (with lambda^+ = self.int_sell):
-        term5 = (2 * self.depth * dp**3 * self.int_sell) / (self.e * self.kappa * D_s1)
-        term6 = (2 * self.depth * y * dp**3 * self.int_sell) / (self.e * self.kappa * (D_s2**2))
-        term7 = (4 * self.depth * y**2 * dp**2 * self.int_sell) / (self.e * self.kappa * (D_s2**2))
-        term8 = (dp**2 * self.int_sell) / (self.e * self.kappa)
-
-        psi17 = term1 + term2 + term3 + term4 + term5 + term6 + term7 + term8
-        return psi17
 
     def compute_psi_18(self):
+        
         """
-        psi_18 = -2 (delta^-)^2 int_buy /(e kappa)
-                -2 (delta^+)^2 int_sell/(e kappa)
+        Psi18 =
+        (6 p^2 φ)/y0^2
+        + ( k * p^2 * y0 * λ^- * (δ^-)^3 ) / ( e * (y0^2 - y0 δ^-)^2 )
+        - ( k * p^2 * λ^- * (δ^-)^2 ) / ( e * (y0^2 - y0 δ^-) )
+        - ( 2 k * p^2 * y0^2 * λ^- * (δ^-)^2 ) / ( e * (y0^2 - y0 δ^-)^2 )
+        + ( λ^- * δ^- ) / e
+        - ( k * p^2 * (δ^+)^2 * λ^+ ) / ( e * (y0^2 + y0 δ^+) )
+        - ( k * p^2 * y0 * (δ^+)^3 * λ^+ ) / ( e * (y0^2 + y0 δ^+)^2 )
+        - ( 2 k * p^2 * y0^2 * (δ^+)^2 * λ^+ ) / ( e * (y0^2 + y0 δ^+)^2 )
+        - ( δ^+ * λ^+ ) / e
         """
-        return (
-            -(2 * (self.delta_minus**2) * self.int_buy)/(self.e * self.kappa)
-            - (2 * (self.delta_plus**2)  * self.int_sell)/(self.e * self.kappa)
-        )
+        # Shorthand assignments
+        y0 = self.y_0              # y₀
+        p2 = self.depth            # p²
+        k = self.kappa             # k
+        e = self.e                 # e
+        phi = self.pen_const       # φ
+        delta_m = self.delta_minus # δ⁻
+        delta_p = self.delta_plus  # δ⁺
+        lambda_m = self.int_buy    # λ⁻
+        lambda_p = self.int_sell   # λ⁺
+
+        # Denominators for the buy side:
+        denom_buy_1 = (y0**2 - y0 * delta_m)
+        denom_buy_2 = denom_buy_1**2
+
+        # Denominators for the sell side:
+        denom_sell_1 = (y0**2 + y0 * delta_p)   # equivalent to (y0 δ^+ + y0^2)
+        denom_sell_2 = denom_sell_1**2
+
+        termA = (6 * p2 * phi) / (y0**2)
+        termB = (k * p2 * y0 * lambda_m * (delta_m**3)) / (e * denom_buy_2)
+        termC = - (k * p2 * lambda_m * (delta_m**2)) / (e * denom_buy_1)
+        termD = - (2 * k * p2 * y0**2 * lambda_m * (delta_m**2)) / (e * denom_buy_2)
+        termE =   (lambda_m * delta_m) / e
+
+        termF = - (k * p2 * (delta_p**2) * lambda_p) / (e * denom_sell_1)
+        termG = - (k * p2 * y0 * (delta_p**3) * lambda_p) / (e * denom_sell_2)
+        termH = - (2 * k * p2 * y0**2 * (delta_p**2) * lambda_p) / (e * denom_sell_2)
+        termI = - (delta_p * lambda_p) / e
+
+        return termA + termB + termC + termD + termE + termF + termG + termH + termI
+
+
 
     def compute_psi_19(self):
-        """
-        psi_19 = (delta^-)^2 int_buy /(e kappa)
-               + (delta^+)^2 int_sell/(e kappa)
-        """
-        return (
-            (self.delta_minus**2 * self.int_buy)/(self.e * self.kappa)
-            + (self.delta_plus**2  * self.int_sell)/(self.e * self.kappa)
-        )
-    
-    def solve_riccati(self):
-        Nt = 1000
-        t_min = 0
+        # LaTeX for Ψ₁₉:
+        # Ψ₁₉ = ( k·δ⁻·λ⁻ - k·δ⁺·λ⁺ )/E
+        e = self.e
+        k = self.kappa
+        δm = self.delta_minus
+        δp = self.delta_plus
+        λm = self.int_buy
+        λp = self.int_sell
+        return (k * (δm**3) * λm - k * (δp**3) * λp) / e
 
-        def riccati_equation(t,A):
-            return -(self.compute_psi_0() + self.compute_psi_1() * A + self.compute_psi_2() * (A**2))
-        
-        _ts = np.linspace(0,1,Nt +1)
-    
-  
-        sol = solve_ivp(
-            riccati_equation,
-            [1,0],
-            [0],
-            t_eval = _ts[::-1]
-        )
-    
-        t_sol = sol.t[::-1]
-        A_sol = sol.y[0][::-1]
-    
-        return t_sol, A_sol
+
+    def compute_psi_20(self):
+        # LaTeX for Ψ₂₀:
+        # Ψ₂₀ = ( k·δ⁺·λ⁺ - k·δ⁻·λ⁻ )/E
+        e = self.e
+        k = self.kappa
+        δm = self.delta_minus
+        δp = self.delta_plus
+        λm = self.int_buy
+        λp = self.int_sell
+        return (-k * (δm**3) * λm + k * (δp**3) * λp) / e
+
+
+    def compute_psi_21(self):
+        # LaTeX for Ψ₂₁:
+        # Ψ₂₁ = - ( k·δ⁻·λ⁻ + k·δ⁺·λ⁺ )/E
+        e = self.e
+        k = self.kappa
+        δm = self.delta_minus
+        δp = self.delta_plus
+        λm = self.int_buy
+        λp = self.int_sell
+        return (-k * (δm**2) * λm - k * (δp**2) * λp) / e
+
+
+    def compute_psi_22(self):
+        # LaTeX for Ψ₂₂:
+        # Ψ₂₂ = ( k·δ⁻·λ⁻ + k·δ⁺·λ⁺ )/E
+        e = self.e
+        k = self.kappa
+        δm = self.delta_minus
+        δp = self.delta_plus
+        λm = self.int_buy
+        λp = self.int_sell
+        return (k * (δm**2) * λm + k * (δp**2) * λp) / e
+
+
+    def compute_psi_23(self):
+        # Shorthand assignments:
+        y0 = self.y_0              # y₀
+        p2 = self.depth            # p²
+        k = self.kappa             # k
+        e = self.e                 # e
+        delta_m = self.delta_minus # δ⁻
+        delta_p = self.delta_plus  # δ⁺
+        lambda_m = self.int_buy    # λ⁻
+        lambda_p = self.int_sell   # λ⁺
+
+        # Denominators for the buy side:
+        denom_buy_1 = (y0**2 - y0 * delta_m)
+        denom_buy_2 = denom_buy_1**2
+
+        # Denominators for the sell side:
+        denom_sell_1 = (y0**2 + y0 * delta_p)
+        denom_sell_2 = denom_sell_1**2
+
+        term1 = - (k * p2 * y0 * lambda_m * (delta_m**3)) / (e * denom_buy_2)
+        term2 =   (k * p2 * lambda_m * (delta_m**2)) / (e * denom_buy_1)
+        term3 =   (2 * k * p2 * y0**2 * lambda_m * (delta_m**2)) / (e * denom_buy_2)
+        term4 = - (lambda_m * delta_m) / e
+        term5 =   (delta_p * lambda_p) / e
+        term6 =   (k * p2 * (delta_p**2) * lambda_p) / (e * denom_sell_1)
+        term7 =   (k * p2 * y0 * (delta_p**3) * lambda_p) / (e * denom_sell_2)
+        term8 =   (2 * k * p2 * y0**2 * (delta_p**2) * lambda_p) / (e * denom_sell_2)
+
+        return term1 + term2 + term3 + term4 + term5 + term6 + term7 + term8
+
+
+    def compute_psi_24(self):
+        # LaTeX for Ψ₂₄:
+        # Ψ₂₄ = - φ + ( (δ⁻)²·λ⁻ )/(2·E·k) + ( (δ⁺)²·λ⁺ )/(2·E·k)
+        φ  = self.pen_const
+        e  = self.e
+        k  = self.kappa
+        δm = self.delta_minus
+        δp = self.delta_plus
+        λm = self.int_buy
+        λp = self.int_sell
+        term1 = - φ
+        term2 = (δm**2 * λm*k) / (2 * e)
+        term3 = (δp**2 * λp*k) / (2 * e)
+        return term1 + term2 + term3
+
+
+    def compute_psi_25(self):
+        # LaTeX for Ψ₂₅:
+        # Ψ₂₅ = - ( (δ⁻)²·λ⁻ )/(E·k) - ( (δ⁺)²·λ⁺ )/(E·k)
+        e  = self.e
+        k  = self.kappa
+        δm = self.delta_minus
+        δp = self.delta_plus
+        λm = self.int_buy
+        λp = self.int_sell
+        term1 = - (δm**2 * λm*k) / (e )
+        term2 = - (δp**2 * λp*k) / (e )
+        return term1 + term2
+
+
+    def compute_psi_26(self):
+        # LaTeX for Ψ₂₆:
+        # Ψ₂₆ = ( (δ⁻)²·λ⁻ )/(2·E·k) + ( (δ⁺)²·λ⁺ )/(2·E·k)
+        e  = self.e
+        k  = self.kappa
+        δm = self.delta_minus
+        δp = self.delta_plus
+        λm = self.int_buy
+        λp = self.int_sell
+        term1 = (δm**2 * λm*k) / (2*e )
+        term2 = (δp**2 * λp*k) / (2*e )
+        return term1 + term2
     
     def solve_system_ODE(self):
         Nt = 1000
         ts_asc = np.linspace(0, 1, Nt + 1)
         
         Gt = lambda t, q: np.array([
-                # 1) A'(t)
-                -(
-                    self.compute_psi_0()
-                    + self.compute_psi_1() * q[0]
-                    + self.compute_psi_2() * (q[0] ** 2)
-                ),
-                # 2) b0'(t)
-                -(
-                    self.compute_psi_9() * q[1]
-                    + self.compute_psi_8() * q[0] * q[1]
-                    + self.compute_psi_5() * q[0]
-                    + self.compute_psi_7() * (q[0] ** 2)
-                    + self.compute_psi_3()
-                ),
-                # 3) b1'(t)
-                -(
-                    self.compute_psi_9() * q[2]
-                    + self.compute_psi_8() * q[0] * q[2]
-                    + self.compute_psi_6() * q[0]
-                    + self.compute_psi_4()
-                ),
-                # 4) c0'(t)
-                -(
-                    self.compute_psi_16() * q[0] * q[1]
-                    + self.compute_psi_17() * q[1]
-                    + self.compute_psi_19() * (q[1] ** 2)
-                    + self.compute_psi_10()
-                    + self.compute_psi_13() * q[0]
-                    + self.compute_psi_15() * (q[0] ** 2)
-                    + self.sigma**2 * q[5]
-                ),
-                # 5) c1'(t)
-                -(
-                    2 * self.compute_psi_19() * q[1] * q[2]
-                    + self.compute_psi_18() * q[1]
-                    + self.compute_psi_16() * q[0] * q[2]
-                    + self.compute_psi_17() * q[2]
-                    + self.compute_psi_11()
-                    + self.compute_psi_14() * q[0]
-                ),
-                # 6) c2'(t)
-                -(
-                    self.compute_psi_18() * q[2]
-                    + self.compute_psi_19() * (q[2] ** 2)
-                    + self.compute_psi_12()
-                ),
-            ])
+            # 1) A'(t)
+            -(
+                self.compute_psi_0()
+                + self.compute_psi_1() * q[0]
+                + self.compute_psi_2() * (q[0] ** 2)
+            ),
+            # 2) b0'(t)
+            -(
+                self.compute_psi_7() * q[1]
+                + self.compute_psi_6() * q[0] * q[1]
+                + self.compute_psi_4() * q[0]
+                + self.compute_psi_5() * (q[0] ** 2)
+                + self.compute_psi_3()
+            ),
+            # 3) b1'(t)
+            -(
+                self.compute_psi_11() * q[2]
+                + self.compute_psi_10() * q[0] * q[2]
+                + self.compute_psi_9() * q[0]
+                + self.compute_psi_8()
+            ),
+            # 4) c0'(t)
+            -(
+                self.compute_psi_15() * q[0] * q[1]  
+                + self.compute_psi_16() * q[1]
+                + self.compute_psi_17() * (q[1] ** 2)
+                + self.compute_psi_12()
+                + self.compute_psi_13() * q[0]
+                + self.compute_psi_14() * (q[0] ** 2)
+                + self.sigma**2 * q[5]
+            ),
+            # 5) c1'(t)
+            -(
+                self.compute_psi_22() * q[2] * q[1]  
+                + self.compute_psi_23() * q[2]
+                + self.compute_psi_20() * q[0] * q[2]
+                + self.compute_psi_21() * q[1]
+                + self.compute_psi_18()
+                + self.compute_psi_19() * q[0]
+            ),
+            # 6) c2'(t)
+            -(
+                self.compute_psi_25() * q[2]
+                + self.compute_psi_26() * (q[2] ** 2)
+                + self.compute_psi_24()
+            ),
+        ])
         
         # We'll integrate *backward* from [self.T .. 0].
         # Because we want the solver to evaluate times in descending order,
@@ -815,35 +983,36 @@ class lin_quad_ansatz:
         
         return t_sol, q_sol
     
-    def _calculate_g_t(self,s):
-        t_sol,q_sol = self.solve_system_ODE()
-        
-        A = q_sol[0]
-        B = q_sol[1] + s*q_sol[2]
-        C = q_sol[3] + q_sol[4]*s + q_sol[5] * (s**2)
+    def _calculate_g_t(self, s):
+        t_sol, q_sol = self.solve_system_ODE()
 
-        A_2d = A[:, None]  # (N_t,1)
+        A = q_sol[0]
+        B = s*q_sol[2] + q_sol[1]   # note the swap: b0 + s*b1
+        C = q_sol[3] + s * q_sol[4] + (s ** 2) * q_sol[5]
+
+        A_2d = A[:, None]
         B_2d = B[:, None]
         C_2d = C[:, None]
-        y_2d = self.y_grid[None, :]  # (1,N_y)
+        y_2d = self.y_grid[None, :]
 
-        # 4) The broadcasting expression
-        g = (y_2d**2)*A_2d + (y_2d)*B_2d + C_2d
-        return t_sol,g
+        g = (y_2d ** 2) * A_2d + y_2d * B_2d + C_2d
+        return t_sol, g
     
     def _calculate_fees_t(self,t,s): # Compute the optimal fees
-        t_sol, g = self._calculate_g_t(s)
-        index = np.where(t_sol == 0.5)[0]
+        t_sol, q_sol = self.solve_system_ODE()
+        index = np.where(t_sol == t)[0]
+        A = q_sol[0][index]
+        B = s*q_sol[2][index] + q_sol[1][index]   # note the swap: b0 + s*b1
         p = np.ones((self.dim))
         m = np.ones((self.dim))
         for i in range(self.dim):
             quantity = self.y_grid[i]
             if i < self.dim -1:
                 quantity_P1 = self.y_grid[i+1]
-                p[i] = (1./self.kappa + g[index,i] - g[index,i+1])/(self.level_fct(quantity) - self.level_fct(quantity_P1))
+                p[i] = (1./self.kappa - 2*quantity*self.delta_plus*A - (A**2)*self.delta_plus**2 - self.delta_plus*B)/(self.level_fct(quantity) - self.level_fct(quantity_P1))
             if i > 0:
                 quantity_M1 = self.y_grid[i-1]
-                m[i] = (1./self.kappa + g[index,i] - g[index,i-1])/(self.level_fct(quantity_M1) - self.level_fct(quantity))
+                m[i] = (1./self.kappa + 2*quantity*self.delta_minus*A - (A**2)*self.delta_minus**2 + self.delta_minus*B)/(self.level_fct(quantity_M1) - self.level_fct(quantity))
         return p, m
     
 
