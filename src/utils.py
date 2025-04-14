@@ -4,7 +4,7 @@ import math
 from scipy.integrate import solve_ivp
 
 
-class AMM: 
+class first_approximation:
     def __init__(self,int_sell, int_buy, kappa, oracleprice, depth, y_grid, y_0, T =1., pen_const=0.):
 
         # Intensities
@@ -171,7 +171,7 @@ class AMM:
         else:
             return (cash, self.y_grid[idx_quantity], n_sell_order, n_buy_order)
         
-    def _calculate_fees_k_0_t(self, t): # Compute the optimal fees
+    def _calculate_fees_k_0_t(self, t): # Compute the optimal fees in the case k=0
         A_matrix = np.zeros((self.dim,self.dim))
         vector = np.ones((self.dim,1))
         for i in range(self.dim): # Define the matrix A
@@ -194,12 +194,12 @@ class AMM:
             if i > 0:
                 quantity_M1 = self.y_grid[i-1]
                 m[i] = (1. + np.log(omega[i,0]) - np.log(omega[i-1,0]))/(self.level_fct(quantity_M1) - self.level_fct(quantity))
-        p[-1] = np.NaN
-        m[0] = np.NaN
+        p[-1] = np.nan
+        m[0] = np.nan
         return p, m
     
-class lin_quad_ansatz:
-    def __init__(self,int_sell, int_buy, kappa, oracleprice, depth, y_grid, y_0, T =1., pen_const=0., sigma = 0.2, delta_minus = 0.5, delta_plus = 0.5):
+class second_approximation:
+    def __init__(self,int_sell, int_buy, kappa, oracleprice, depth, y_grid, y_0, T =1., pen_const=0., sigma = 0.2):
         # Intensities
         self.int_sell = int_sell
         self.int_buy = int_buy
@@ -228,12 +228,15 @@ class lin_quad_ansatz:
 
         # volatility
         self.sigma = sigma
-
-        self.delta_minus = delta_minus
-        self.delta_plus = delta_plus
         
         self.e = math.e  # Base of natural logarithm
         self.p4 = self.depth**2  # p^4 = (p^2)^2 = depth^2
+    
+    def delta_buy(self):
+        return self.y_grid[1] - self.y_grid[0]
+
+    def delta_sell(self):
+        return self.y_grid[1] - self.y_grid[0]
     
     def level_fct(self,y): # We assume CPMM
         return self.depth / y
@@ -248,8 +251,8 @@ class lin_quad_ansatz:
         phi = self.pen_const  # φ
         k = self.kappa        # k
         e = self.e            # e
-        delta_m = self.delta_minus  # δ⁻
-        delta_p = self.delta_plus   # δ⁺
+        delta_m = self.delta_buy()  # δ⁻
+        delta_p = self.delta_sell()   # δ⁺
         lambda_m = self.int_buy     # λ⁻
         lambda_p = self.int_sell    # λ⁺
 
@@ -276,8 +279,8 @@ class lin_quad_ansatz:
         p2 = self.depth            # p²
         k = self.kappa             # k
         e = self.e                 # e
-        delta_m = self.delta_minus # δ⁻
-        delta_p = self.delta_plus  # δ⁺
+        delta_m = self.delta_buy()  # δ⁻
+        delta_p = self.delta_sell() # δ⁺
         lambda_m = self.int_buy    # λ⁻
         lambda_p = self.int_sell   # λ⁺
 
@@ -299,13 +302,13 @@ class lin_quad_ansatz:
         # Ψ₂ = ( -2·k·δ⁻·λ⁻/(E) + 2·k·δ⁺·λ⁺/(E) )
         e  = self.e
         k  = self.kappa
-        δm = self.delta_minus
-        δp = self.delta_plus
+        delta_m = self.delta_buy()  # δ⁻
+        delta_p = self.delta_sell()
         λm = self.int_buy
         λp = self.int_sell
 
-        term1 = (2 * k * (δm**2) * λm) / e
-        term2 = (2 * k * (δp**2) * λp) / e
+        term1 = (2 * k * (delta_m**2) * λm) / e
+        term2 = (2 * k * (delta_p**2) * λp) / e
         return term1 + term2
 
 
@@ -316,8 +319,8 @@ class lin_quad_ansatz:
         p2 = self.depth            # p^2
         k = self.kappa             # k
         e = self.e                 # e
-        delta_m = self.delta_minus # δ⁻
-        delta_p = self.delta_plus  # δ⁺
+        delta_m = self.delta_buy() # δ⁻
+        delta_p = self.delta_sell()  # δ⁺
         lambda_m = self.int_buy    # λ⁻
         lambda_p = self.int_sell   # λ⁺
         phi = self.pen_const       # φ
@@ -364,8 +367,8 @@ class lin_quad_ansatz:
         p2 = self.depth            # p²
         k = self.kappa             # k
         e = self.e                 # e
-        delta_m = self.delta_minus # δ⁻
-        delta_p = self.delta_plus  # δ⁺
+        delta_m = self.delta_buy() # δ⁻
+        delta_p = self.delta_sell()  # δ⁺
         lambda_m = self.int_buy    # λ⁻
         lambda_p = self.int_sell   # λ⁺
 
@@ -396,8 +399,8 @@ class lin_quad_ansatz:
         # Ψ₅ = ( -2·k·(δ⁺)³·λ⁺ + 2·k·(δ⁻)³·λ⁻ )/E
         e = self.e
         k = self.kappa
-        δm = self.delta_minus
-        δp = self.delta_plus
+        δm = self.delta_buy()
+        δp = self.delta_sell()
         λm = self.int_buy
         λp = self.int_sell
         term1 = (2 * k * (δp**3) * λp) / e
@@ -410,8 +413,8 @@ class lin_quad_ansatz:
         # Ψ₆ = ( -2·k·(δ⁻)·λ⁻ + 2·k·(δ⁺)·λ⁺ )/E
         e = self.e
         k = self.kappa
-        δm = self.delta_minus
-        δp = self.delta_plus
+        δm = self.delta_buy()
+        δp = self.delta_sell()
         λm = self.int_buy
         λp = self.int_sell
         term1 = (2 * k * (δm**2) * λm) / e
@@ -425,8 +428,8 @@ class lin_quad_ansatz:
         p2 = self.depth            # p²
         k = self.kappa             # k
         e = self.e                 # e
-        delta_m = self.delta_minus # δ⁻
-        delta_p = self.delta_plus  # δ⁺
+        delta_m = self.delta_buy() # δ⁻
+        delta_p = self.delta_sell()  # δ⁺
         lambda_m = self.int_buy    # λ⁻
         lambda_p = self.int_sell   # λ⁺
 
@@ -448,8 +451,8 @@ class lin_quad_ansatz:
         p2 = self.depth            # p²
         k = self.kappa             # k
         e = self.e                 # e
-        delta_m = self.delta_minus # δ⁻
-        delta_p = self.delta_plus  # δ⁺
+        delta_m = self.delta_buy() # δ⁻
+        delta_p = self.delta_sell()  # δ⁺
         lambda_m = self.int_buy    # λ⁻
         lambda_p = self.int_sell   # λ⁺
         phi = self.pen_const       # φ
@@ -473,8 +476,8 @@ class lin_quad_ansatz:
         # Ψ₉ = ( -2·k·(δ⁻)²·λ⁻ + 2·k·(δ⁺)²·λ⁺ )/E
         e  = self.e
         k  = self.kappa
-        δm = self.delta_minus
-        δp = self.delta_plus
+        δm = self.delta_buy()
+        δp = self.delta_sell()
         λm = self.int_buy
         λp = self.int_sell
         term1 = (-2 * k * (δm**2) * λm) / e
@@ -487,8 +490,8 @@ class lin_quad_ansatz:
         # Ψ₁₀ = ( 2·k·(δ⁻)²·λ⁻ - 2·k·(δ⁺)²·λ⁺ )/E
         e  = self.e
         k  = self.kappa
-        δm = self.delta_minus
-        δp = self.delta_plus
+        δm = self.delta_buy()
+        δp = self.delta_sell()
         λm = self.int_buy
         λp = self.int_sell
         term1 = (2 * k * (δm**2) * λm) / e
@@ -508,8 +511,8 @@ class lin_quad_ansatz:
         p2 = self.depth            # p²
         k = self.kappa             # k
         e = self.e                 # e
-        delta_m = self.delta_minus # δ⁻
-        delta_p = self.delta_plus  # δ⁺
+        delta_m = self.delta_buy() # δ⁻
+        delta_p = self.delta_sell()  # δ⁺
         lambda_m = self.int_buy    # λ⁻
         lambda_p = self.int_sell   # λ⁺
 
@@ -556,8 +559,8 @@ class lin_quad_ansatz:
         k = self.kappa             # k
         e = self.e                 # e
         phi = self.pen_const       # φ
-        delta_m = self.delta_minus # δ⁻
-        delta_p = self.delta_plus  # δ⁺
+        delta_m = self.delta_buy() # δ⁻
+        delta_p = self.delta_sell()  # δ⁺
         lambda_m = self.int_buy    # λ⁻
         lambda_p = self.int_sell   # λ⁺
 
@@ -629,8 +632,8 @@ class lin_quad_ansatz:
         p2 = self.depth            # p²
         k = self.kappa             # k
         e = self.e                 # e
-        delta_m = self.delta_minus # δ⁻
-        delta_p = self.delta_plus  # δ⁺
+        delta_m = self.delta_buy() # δ⁻
+        delta_p = self.delta_sell()  # δ⁺
         lambda_m = self.int_buy    # λ⁻
         lambda_p = self.int_sell   # λ⁺
 
@@ -659,8 +662,8 @@ class lin_quad_ansatz:
         # Ψ₁₄ = ( -4·k·δ⁻·λ⁻ + 4·k·δ⁺·λ⁺ )/(2·E)
         e = self.e
         k = self.kappa
-        δm = self.delta_minus
-        δp = self.delta_plus
+        δm = self.delta_buy()
+        δp = self.delta_sell()
         λm = self.int_buy
         λp = self.int_sell
         term1 = (k * (δm**4) * λm) / (2 * e)
@@ -673,8 +676,8 @@ class lin_quad_ansatz:
         # Ψ₁₅ = ( -3·k·δ⁻·λ⁻ + 3·k·δ⁺·λ⁺ )/E
         e = self.e
         k = self.kappa
-        δm = self.delta_minus
-        δp = self.delta_plus
+        δm = self.delta_buy()
+        δp = self.delta_sell()
         λm = self.int_buy
         λp = self.int_sell
         term1 = -(k * (δm**3) * λm) / e
@@ -699,8 +702,8 @@ class lin_quad_ansatz:
         p2 = self.depth            # p²
         k = self.kappa             # k
         e = self.e                 # e
-        delta_m = self.delta_minus # δ⁻
-        delta_p = self.delta_plus  # δ⁺
+        delta_m = self.delta_buy() # δ⁻
+        delta_p = self.delta_sell()  # δ⁺
         lambda_m = self.int_buy    # λ⁻
         lambda_p = self.int_sell   # λ⁺
 
@@ -730,8 +733,8 @@ class lin_quad_ansatz:
         # Ψ₁₇ = ( -2·k·(δ⁻)·λ⁻ + 2·k·(δ⁺)·λ⁺ )/(2·E)
         e = self.e
         k = self.kappa
-        δm = self.delta_minus
-        δp = self.delta_plus
+        δm = self.delta_buy()
+        δp = self.delta_sell()
         λm = self.int_buy
         λp = self.int_sell
         term1 = (k * (δm**2) * λm) / (2 * e)
@@ -759,8 +762,8 @@ class lin_quad_ansatz:
         k = self.kappa             # k
         e = self.e                 # e
         phi = self.pen_const       # φ
-        delta_m = self.delta_minus # δ⁻
-        delta_p = self.delta_plus  # δ⁺
+        delta_m = self.delta_buy() # δ⁻
+        delta_p = self.delta_sell()  # δ⁺
         lambda_m = self.int_buy    # λ⁻
         lambda_p = self.int_sell   # λ⁺
 
@@ -792,8 +795,8 @@ class lin_quad_ansatz:
         # Ψ₁₉ = ( k·δ⁻·λ⁻ - k·δ⁺·λ⁺ )/E
         e = self.e
         k = self.kappa
-        δm = self.delta_minus
-        δp = self.delta_plus
+        δm = self.delta_buy()
+        δp = self.delta_sell()
         λm = self.int_buy
         λp = self.int_sell
         return (k * (δm**3) * λm - k * (δp**3) * λp) / e
@@ -804,8 +807,8 @@ class lin_quad_ansatz:
         # Ψ₂₀ = ( k·δ⁺·λ⁺ - k·δ⁻·λ⁻ )/E
         e = self.e
         k = self.kappa
-        δm = self.delta_minus
-        δp = self.delta_plus
+        δm = self.delta_buy()
+        δp = self.delta_sell()
         λm = self.int_buy
         λp = self.int_sell
         return (-k * (δm**3) * λm + k * (δp**3) * λp) / e
@@ -816,8 +819,8 @@ class lin_quad_ansatz:
         # Ψ₂₁ = - ( k·δ⁻·λ⁻ + k·δ⁺·λ⁺ )/E
         e = self.e
         k = self.kappa
-        δm = self.delta_minus
-        δp = self.delta_plus
+        δm = self.delta_buy()
+        δp = self.delta_sell()
         λm = self.int_buy
         λp = self.int_sell
         return (-k * (δm**2) * λm - k * (δp**2) * λp) / e
@@ -828,8 +831,8 @@ class lin_quad_ansatz:
         # Ψ₂₂ = ( k·δ⁻·λ⁻ + k·δ⁺·λ⁺ )/E
         e = self.e
         k = self.kappa
-        δm = self.delta_minus
-        δp = self.delta_plus
+        δm = self.delta_buy()
+        δp = self.delta_sell()
         λm = self.int_buy
         λp = self.int_sell
         return (k * (δm**2) * λm + k * (δp**2) * λp) / e
@@ -841,8 +844,8 @@ class lin_quad_ansatz:
         p2 = self.depth            # p²
         k = self.kappa             # k
         e = self.e                 # e
-        delta_m = self.delta_minus # δ⁻
-        delta_p = self.delta_plus  # δ⁺
+        delta_m = self.delta_buy() # δ⁻
+        delta_p = self.delta_sell()  # δ⁺
         lambda_m = self.int_buy    # λ⁻
         lambda_p = self.int_sell   # λ⁺
 
@@ -872,8 +875,8 @@ class lin_quad_ansatz:
         φ  = self.pen_const
         e  = self.e
         k  = self.kappa
-        δm = self.delta_minus
-        δp = self.delta_plus
+        δm = self.delta_buy()
+        δp = self.delta_sell()
         λm = self.int_buy
         λp = self.int_sell
         term1 = - φ
@@ -887,8 +890,8 @@ class lin_quad_ansatz:
         # Ψ₂₅ = - ( (δ⁻)²·λ⁻ )/(E·k) - ( (δ⁺)²·λ⁺ )/(E·k)
         e  = self.e
         k  = self.kappa
-        δm = self.delta_minus
-        δp = self.delta_plus
+        δm = self.delta_buy()
+        δp = self.delta_sell()
         λm = self.int_buy
         λp = self.int_sell
         term1 = - (δm**2 * λm*k) / (e )
@@ -901,8 +904,8 @@ class lin_quad_ansatz:
         # Ψ₂₆ = ( (δ⁻)²·λ⁻ )/(2·E·k) + ( (δ⁺)²·λ⁺ )/(2·E·k)
         e  = self.e
         k  = self.kappa
-        δm = self.delta_minus
-        δp = self.delta_plus
+        δm = self.delta_buy()
+        δp = self.delta_sell()
         λm = self.int_buy
         λp = self.int_sell
         term1 = (δm**2 * λm*k) / (2*e )
@@ -1002,22 +1005,93 @@ class lin_quad_ansatz:
         t_sol, q_sol = self.solve_system_ODE()
         index = np.where(t_sol == t)[0]
         A = q_sol[0][index]
-        B = s*q_sol[2][index] + q_sol[1][index]   # note the swap: b0 + s*b1
+        B = s*q_sol[2][index] + q_sol[1][index] 
         p = np.ones((self.dim))
         m = np.ones((self.dim))
         for i in range(self.dim):
             quantity = self.y_grid[i]
             if i < self.dim -1:
                 quantity_P1 = self.y_grid[i+1]
-                p[i] = (1./self.kappa - 2*quantity*self.delta_plus*A - (A**2)*self.delta_plus**2 - self.delta_plus*B)/(self.level_fct(quantity) - self.level_fct(quantity_P1))
+                p[i] = (1./self.kappa - 2*quantity*self.delta_sell()*A - (A**2)*self.delta_sell()**2 - self.delta_sell()*B)/(self.level_fct(quantity) - self.level_fct(quantity_P1))
             if i > 0:
                 quantity_M1 = self.y_grid[i-1]
-                m[i] = (1./self.kappa + 2*quantity*self.delta_minus*A - (A**2)*self.delta_minus**2 + self.delta_minus*B)/(self.level_fct(quantity_M1) - self.level_fct(quantity))
+                m[i] = (1./self.kappa + 2*quantity*self.delta_buy()*A - (A**2)*self.delta_buy()**2 + self.delta_buy()*B)/(self.level_fct(quantity_M1) - self.level_fct(quantity))
         return p, m
+    
+    def _calculate_fees_t_k0(self,t,s): # Compute the optimal fees
+        p = np.ones((self.dim))
+        m = np.ones((self.dim))
+        for i in range(self.dim):
+            quantity = self.y_grid[i]
+            if i < self.dim -1:
+                quantity_P1 = self.y_grid[i+1]
+                p[i] = (1.)/(self.level_fct(quantity) - self.level_fct(quantity_P1))
+            if i > 0:
+                quantity_M1 = self.y_grid[i-1]
+                m[i] = (1.)/(self.level_fct(quantity_M1) - self.level_fct(quantity))
+        return p, m
+    
+        
+    def _calculate_fees(self, Nt=1000, seed=123, nsims=100):  # Compute the optimal fees
+        np.random.seed(seed)
+        t_sol, q_sol = self.solve_system_ODE()
+        dt = self.T / Nt
+
+        A = q_sol[0]  # shape (Nt+1,)
+        y = self.y_grid  # shape (dim,)
+        y_P1 = np.roll(y, -1)
+        y_M1 = np.roll(y, 1)
+
+        # Brownian motion simulation: shape (nsims, Nt)
+        dW = np.random.normal(0, np.sqrt(dt), (nsims, Nt))
+        W = np.concatenate([np.zeros((nsims, 1)), np.cumsum(dW, axis=1)], axis=1)  # shape (nsims, Nt+1)
+        St = self.oracleprice + self.sigma * W  # shape (nsims, Nt+1)
+
+        # Compute B for all sims: shape (nsims, Nt+1)
+        B = St * q_sol[2] + q_sol[1]
+
+        # Broadcast A and B: shape (nsims, Nt+1, 1)
+        A_broadcast = A[None, :, None]
+        B_broadcast = B[:, :, None]
+
+        # Broadcast y: shape (1, 1, dim)
+        y_broadcast = y[None, None, :]
+
+        # Compute delta_sell and delta_buy once: shape (dim,)
+        delta_sell_y = self.delta_sell()
+        delta_buy_y = self.delta_buy()
+
+        # Compute p (forward difference): shape (nsims, Nt+1, dim)
+        num_p = (
+            1. / self.kappa
+            - 2 * y_broadcast * delta_sell_y * A_broadcast
+            - (A_broadcast ** 2) * delta_sell_y ** 2
+            - delta_sell_y * B_broadcast
+        )
+        denom_p = self.level_fct(y_broadcast) - self.level_fct(y_P1)[None, None, :]
+        p = np.ones((nsims, Nt+1, self.dim))
+        p[:, :, :-1] = num_p[:, :, :-1] / denom_p[:, :, :-1]
+
+        # Compute m (backward difference): shape (nsims, Nt+1, dim)
+        num_m = (
+            1. / self.kappa
+            + 2 * y_broadcast * delta_buy_y * A_broadcast
+            - (A_broadcast ** 2) * delta_buy_y ** 2
+            + delta_buy_y * B_broadcast
+        )
+        denom_m = self.level_fct(y_M1)[None, None, :] - self.level_fct(y_broadcast)
+        m = np.ones((nsims, Nt+1, self.dim))
+        m[:, :, 1:] = num_m[:, :, 1:] / denom_m[:, :, 1:]
+
+        # Average over simulations: shape (Nt+1, dim)
+        p_avg = np.mean(p, axis=0)
+        m_avg = np.mean(m, axis=0)
+
+        return p_avg, m_avg
     
 
 class F_AMM:
-    def __init__(self,int_sell, int_buy, kappa, oracleprice, depth, y_grid, y_0, T =1., pen_const=0., sigma = 10):
+    def __init__(self,int_sell, int_buy, kappa, oracleprice, depth, y_grid, y_0, T =1., pen_const=0., sigma = 2):
         # Intensities
         self.int_sell = int_sell
         self.int_buy = int_buy
