@@ -5,7 +5,7 @@ from tqdm import tqdm
 from scipy.integrate import solve_ivp
 from scipy.sparse.linalg import expm_multiply
 import torch
-
+from scipy.interpolate import interp1d
 
 class first_approximation:
     def __init__(self,int_sell, int_buy, kappa, oracleprice, depth, y_grid, y_0, T =1., pen_const=0.):
@@ -1094,7 +1094,8 @@ class second_approximation:
     
     
 class new:
-    def __init__(self,int_sell, int_buy, kappa, oracleprice, depth, y_grid, y_0, sigma = 0.2, T =1., pen_const=0.):
+    def __init__(self,int_sell, int_buy, kappa, oracleprice, depth, y_grid, y_0, sigma = 0.2, T =1., pen_const=0.,
+                 Nt = 1000, Sgrid: np.ndarray = np.linspace(90, 110, 100)):
             
             # Intensities
             self.int_sell = int_sell
@@ -1125,7 +1126,16 @@ class new:
             # volatility
             self.sigma = sigma
 
-            
+            self.Nt = Nt
+            self.timesteps = np.linspace(0, self.T, self.Nt+1)
+            self.Sgrid = Sgrid
+
+            # Precompute m and p for the above grid and timesteps
+            self.p_precomputed = np.zeros((self.Nt+1, self.dim, len(Sgrid)))
+            self.m_precomputed = np.zeros((self.Nt+1, self.dim, len(Sgrid)))
+            for i, t in tqdm(enumerate(self.timesteps)):
+                self.p_precomputed[i,:,:], self.m_precomputed[i,:,:] = self._calculate_fees_first_approx_t(t, self.Sgrid)
+
             self.e = math.e  # Base of natural logarithm
             self.p4 = self.depth**2  # p^4 = (p^2)^2 = depth^2
 
@@ -1181,7 +1191,18 @@ class new:
     def _calculate_v_t(self, t, St):
         omega = self._calculate_omega_t(t, St)   # (T, dim)
         return (1.0 / self.kappa) * np.log(omega)
-        
+
+    def _calculate_fast_fees_first_approx_t(self, it, St): # Compute the optimal fees
+        p = np.zeros((self.dim, len(St)))
+        m = np.zeros((self.dim, len(St)))
+        p_interp = interp1d(self.Sgrid, self.p_precomputed[it, :, :], axis=1, bounds_error=False, fill_value="extrapolate")
+        m_interp = interp1d(self.Sgrid, self.m_precomputed[it, :, :], axis=1, bounds_error=False, fill_value="extrapolate")
+
+        # Evaluate at desired points
+        p = p_interp(St)  # shape: (len(St), dim)
+        m = m_interp(St)
+        return p, m
+
     def _calculate_fees_first_approx_t(self, t,St): # Compute the optimal fees
         v_qs = self._calculate_v_t(t,St)
         p = np.ones((self.dim,len(St)))
@@ -1281,7 +1302,6 @@ class new:
 
         return term1 + term2 + term3 + term4 + term5 + term6 + term7
 
-
     def compute_psi_1(self):
         
         # Shorthand assignments:
@@ -1306,7 +1326,6 @@ class new:
 
         return term1 + term2 + term3 + term4
 
-
     def compute_psi_2(self):
         # LaTeX for Ψ₂:
         # Ψ₂ = ( -2·k·δ⁻·λ⁻/(E) + 2·k·δ⁺·λ⁺/(E) )
@@ -1320,7 +1339,6 @@ class new:
         term1 = (2 * k * (delta_m**2) * λm) / e
         term2 = (2 * k * (delta_p**2) * λp) / e
         return term1 + term2
-
 
     def compute_psi_3(self):
         # Shorthand assignments:
@@ -1370,7 +1388,6 @@ class new:
                 term6 + term7 + term8 + term9 + term10 +
                 term11 + term12 + term13 + term14 + term15)
 
-
     def compute_psi_4(self):
         # Shorthand assignments:
         y0 = self.y_0              # y₀
@@ -1402,8 +1419,6 @@ class new:
 
         return term1 + term2 + term3 + term4 + term5 + term6 + term7 + term8
 
-
-
     def compute_psi_5(self):
         # LaTeX for Ψ₅:
         # Ψ₅ = ( -2·k·(δ⁺)³·λ⁺ + 2·k·(δ⁻)³·λ⁻ )/E
@@ -1417,7 +1432,6 @@ class new:
         term2 = - (2 * k * (δm**3) * λm) / e
         return term1 + term2
 
-
     def compute_psi_6(self):
         # LaTeX for Ψ₆:
         # Ψ₆ = ( -2·k·(δ⁻)·λ⁻ + 2·k·(δ⁺)·λ⁺ )/E
@@ -1430,7 +1444,6 @@ class new:
         term1 = (2 * k * (δm**2) * λm) / e
         term2 = (2 * k * (δp**2) * λp) / e
         return term1 + term2
-
 
     def compute_psi_7(self):
         # Shorthand assignments:
@@ -1453,7 +1466,6 @@ class new:
         term4 = - (2 * k * p2 * y0 * lambda_p * (delta_p**2)) / (e * denom_sell)
 
         return term1 + term2 + term3 + term4
-
 
     def compute_psi_8(self):
         # Shorthand assignments:
@@ -1480,7 +1492,6 @@ class new:
 
         return term1 + term2 + term3 + term4 + term5
 
-
     def compute_psi_9(self):
         # LaTeX for Ψ₉:
         # Ψ₉ = ( -2·k·(δ⁻)²·λ⁻ + 2·k·(δ⁺)²·λ⁺ )/E
@@ -1494,7 +1505,6 @@ class new:
         term2 = (-2 * k * (δp**2) * λp) / e
         return term1 + term2
 
-
     def compute_psi_10(self):
         # LaTeX for Ψ₁₀:
         # Ψ₁₀ = ( 2·k·(δ⁻)²·λ⁻ - 2·k·(δ⁺)²·λ⁺ )/E
@@ -1507,7 +1517,6 @@ class new:
         term1 = (2 * k * (δm**2) * λm) / e
         term2 = (2 * k * (δp**2) * λp) / e
         return term1 + term2
-
 
     def compute_psi_11(self):
         """
@@ -1535,7 +1544,6 @@ class new:
         term4 = - (2 * k * p2 * y0 * lambda_p * (delta_p**2)) / (e * denom_sell)
 
         return term1 + term2 + term3 + term4
-
 
     def compute_psi_12(self):
         """
@@ -1625,7 +1633,6 @@ class new:
                 M + N + O + P + Q + R + S +
                 T + U)
 
-
     def compute_psi_13(self):
         """
         Psi13 =
@@ -1666,7 +1673,6 @@ class new:
 
         return term1 + term2 + term3 + term4 + term5 + term6 + term7 + term8
 
-
     def compute_psi_14(self):
         # LaTeX for Ψ₁₄:
         # Ψ₁₄ = ( -4·k·δ⁻·λ⁻ + 4·k·δ⁺·λ⁺ )/(2·E)
@@ -1680,7 +1686,6 @@ class new:
         term2 = (k * (δp**4) * λp) / (2 * e)
         return term1 + term2
 
-
     def compute_psi_15(self):
         # LaTeX for Ψ₁₅:
         # Ψ₁₅ = ( -3·k·δ⁻·λ⁻ + 3·k·δ⁺·λ⁺ )/E
@@ -1693,7 +1698,6 @@ class new:
         term1 = -(k * (δm**3) * λm) / e
         term2 = (k * (δp**3) * λp) / e
         return term1 + term2
-
 
     def compute_psi_16(self):
         """
@@ -1737,7 +1741,6 @@ class new:
 
         return term1 + term2 + term3 + term4 + term5 + term6 + term7 + term8
 
-
     def compute_psi_17(self):
         # LaTeX for Ψ₁₇:
         # Ψ₁₇ = ( -2·k·(δ⁻)·λ⁻ + 2·k·(δ⁺)·λ⁺ )/(2·E)
@@ -1750,7 +1753,6 @@ class new:
         term1 = (k * (δm**2) * λm) / (2 * e)
         term2 = (k * (δp**2) * λp) / (2 * e)
         return term1 + term2
-
 
     def compute_psi_18(self):
         
@@ -1798,8 +1800,6 @@ class new:
 
         return termA + termB + termC + termD + termE + termF + termG + termH + termI
 
-
-
     def compute_psi_19(self):
         # LaTeX for Ψ₁₉:
         # Ψ₁₉ = ( k·δ⁻·λ⁻ - k·δ⁺·λ⁺ )/E
@@ -1810,7 +1810,6 @@ class new:
         λm = self.int_buy
         λp = self.int_sell
         return (k * (δm**3) * λm - k * (δp**3) * λp) / e
-
 
     def compute_psi_20(self):
         # LaTeX for Ψ₂₀:
@@ -1823,7 +1822,6 @@ class new:
         λp = self.int_sell
         return (-k * (δm**3) * λm + k * (δp**3) * λp) / e
 
-
     def compute_psi_21(self):
         # LaTeX for Ψ₂₁:
         # Ψ₂₁ = - ( k·δ⁻·λ⁻ + k·δ⁺·λ⁺ )/E
@@ -1835,7 +1833,6 @@ class new:
         λp = self.int_sell
         return (-k * (δm**2) * λm - k * (δp**2) * λp) / e
 
-
     def compute_psi_22(self):
         # LaTeX for Ψ₂₂:
         # Ψ₂₂ = ( k·δ⁻·λ⁻ + k·δ⁺·λ⁺ )/E
@@ -1846,7 +1843,6 @@ class new:
         λm = self.int_buy
         λp = self.int_sell
         return (k * (δm**2) * λm + k * (δp**2) * λp) / e
-
 
     def compute_psi_23(self):
         # Shorthand assignments:
@@ -1878,7 +1874,6 @@ class new:
 
         return term1 + term2 + term3 + term4 + term5 + term6 + term7 + term8
 
-
     def compute_psi_24(self):
         # LaTeX for Ψ₂₄:
         # Ψ₂₄ = - φ + ( (δ⁻)²·λ⁻ )/(2·E·k) + ( (δ⁺)²·λ⁺ )/(2·E·k)
@@ -1894,7 +1889,6 @@ class new:
         term3 = (δp**2 * λp*k) / (2 * e)
         return term1 + term2 + term3
 
-
     def compute_psi_25(self):
         # LaTeX for Ψ₂₅:
         # Ψ₂₅ = - ( (δ⁻)²·λ⁻ )/(E·k) - ( (δ⁺)²·λ⁺ )/(E·k)
@@ -1907,7 +1901,6 @@ class new:
         term1 = - (δm**2 * λm*k) / (e )
         term2 = - (δp**2 * λp*k) / (e )
         return term1 + term2
-
 
     def compute_psi_26(self):
         # LaTeX for Ψ₂₆:
@@ -1996,7 +1989,6 @@ class new:
         
         return t_sol, q_sol
 
-    
     def _calculate_fees_second_approx_t(self, t, St):  # Compute the optimal fees for all St
         St = np.asarray(St)  # Ensure it's a NumPy array
         n = len(St)
@@ -2072,7 +2064,7 @@ class new:
             m = m_mat[idx_quantity, sims]
         for it, t in enumerate(tqdm(timesteps[:-1], desc="Simulating PnL")):
             if strategy == "First Approximation":
-                p, m = self._calculate_fees_first_approx_t(t,St[:,it])
+                p, m = self._calculate_fast_fees_first_approx_t(it,St[:,it])
                 # collapse to one fee per sim
                 sims = np.arange(nsims)
                 p = p[idx_quantity, sims]      # → (nsims,)
